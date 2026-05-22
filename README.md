@@ -2,92 +2,162 @@
 
 ## 📌 Giới thiệu
 
-Đồ án cuối kỳ môn **INT1334 – Lập trình Web**
+Đồ án cuối kỳ môn **INT1334 – Lập trình Web** tại PTIT.
 
-Đề tài:
+### 🖼️ Đề tài
 
-**Creative Portfolio Platform**
+# Creative Portfolio Platform
 
-Nền tảng chia sẻ tác phẩm sáng tạo cho phép người dùng tạo portfolio cá nhân, đăng tải ảnh/video, tương tác với cộng đồng thông qua like, comment và follow.
+Nền tảng chia sẻ tác phẩm sáng tạo cho phép người dùng:
+
+- Xây dựng portfolio cá nhân
+- Đăng tải ảnh/video
+- Tương tác cộng đồng thông qua:
+  - ❤️ Like
+  - 💬 Comment
+  - 👥 Follow
+  - 🔔 Notification realtime
 
 ---
 
-## 🚀 Chức năng chính
+# 🚀 Chức năng chính
 
-### Authentication
+## 🔐 Authentication
+
 - Đăng ký tài khoản
 - Đăng nhập
+- Đăng xuất
 - JWT Authentication
+- Refresh Token
 - Phân quyền User / Admin
 
-### User
-- Xem và chỉnh sửa hồ sơ cá nhân
+---
+
+## 👤 User Management
+
+- Xem hồ sơ cá nhân
+- Chỉnh sửa hồ sơ
 - Upload avatar
 - Follow / Unfollow người dùng
+- Portfolio cá nhân
 
-### Post
+---
+
+## 📝 Post Management
+
 - Tạo bài viết
 - Chỉnh sửa bài viết
 - Xóa bài viết
-- Xem danh sách bài viết
+- Feed bài viết
+- Explore bài viết
 - Upload ảnh/video
-
-### Interaction
-- Like bài viết
-- Comment bài viết
-- Notification
 
 ---
 
-## 🛠 Công nghệ sử dụng
+## ❤️ Interaction
 
-### Frontend
+- Like bài viết
+- Comment bài viết
+- Save bài viết
+- Notification realtime
+
+---
+
+## 🔍 Search System
+
+- Tìm kiếm theo tag
+- Tìm kiếm người dùng
+- Filter bài viết
+
+---
+
+# 🛠️ Công nghệ sử dụng
+
+## Frontend
+
 - NextJS 15 (App Router)
 - Tailwind CSS
 - React Hook Form
 - Zod
-
-### Backend
-- NodeJS
-- ExpressJS
-- JWT Authentication
-
-### Database
-- MongoDB Atlas
-- Mongoose
-
-### Cloud
-- Cloudinary
-
-### Deploy
-- Vercel
-- Render
+- Zustand / Context API
 
 ---
 
-## 📂 Cấu trúc thư mục
+## Backend
+
+- NodeJS
+- ExpressJS
+- JWT Authentication
+- Socket.io
+
+---
+
+## Database
+
+- MongoDB Atlas
+- Mongoose
+
+---
+
+## Cloud & Media
+
+- Cloudinary
+
+---
+
+## Deployment
+
+- Vercel (Frontend)
+- Render (Backend)
+
+---
+
+# 📂 Cấu trúc thư mục
 
 ```txt
-app
-├── api
-├── login
-├── register
-├── feed
-├── profile
-├── post
-│   └── [id]
-
-components
-├── ui
-├── auth
-└── feed
-
-lib
-models
-context
-hooks
-utils
-public
+D23CQCN02_Nhom1A_Web_Portfolio/
+├── frontend/
+│   ├── app/
+│   │   ├── api/
+│   │   ├── login/
+│   │   ├── register/
+│   │   ├── profile/
+│   │   ├── create-post/
+│   │   ├── explore/
+│   │   ├── notifications/
+│   │   └── post/
+│   │       └── [id]/
+│   │
+│   ├── components/
+│   │   ├── auth/
+│   │   ├── post/
+│   │   ├── comment/
+│   │   ├── notification/
+│   │   └── common/
+│   │
+│   ├── hooks/
+│   ├── lib/
+│   ├── public/
+│   ├── store/
+│   ├── utils/
+│   └── package.json
+│
+├── backend/
+│   ├── src/
+│   │   ├── config/
+│   │   ├── controllers/
+│   │   ├── middleware/
+│   │   ├── models/
+│   │   ├── routes/
+│   │   ├── socket/
+│   │   ├── utils/
+│   │   ├── app.js
+│   │   └── server.js
+│   │
+│   └── package.json
+│
+├── README.md
+└── .gitignore
 ```
 
 ---
@@ -103,12 +173,20 @@ git clone https://github.com/moseking/D23CQCN02_Nhom1A_Web_Portfolio.git
 Di chuyển vào project:
 
 ```bash
-cd d23cqcn02_nhom1a_web_portfolio
+cd D23CQCN02_Nhom1A_Web_Portfolio
 ```
 
-Cài package:
+## 📦 Cài đặt Frontend
 
 ```bash
+cd frontend
+npm install
+```
+
+## 📦 Cài đặt Backend
+
+```bash
+cd ../backend
 npm install
 ```
 
@@ -116,10 +194,24 @@ npm install
 
 ## 🔑 Cấu hình môi trường
 
+Frontend
 Tạo file:
 
 ```txt
-.env.local
+frontend/.env.local
+```
+
+Thêm:
+
+```env
+NEXT_PUBLIC_API_URL=
+```
+
+Backend
+Tạo file:
+
+```txt
+backend/.env
 ```
 
 Thêm:
@@ -129,8 +221,6 @@ MONGODB_URI=
 
 JWT_SECRET=
 
-NEXT_PUBLIC_API_URL=
-
 CLOUDINARY_CLOUD_NAME=
 
 CLOUDINARY_API_KEY=
@@ -138,32 +228,22 @@ CLOUDINARY_API_KEY=
 CLOUDINARY_API_SECRET=
 ```
 
----
-
 ## ▶️ Chạy project
 
-Development:
+Chạy Frontend
 
 ```bash
+cd frontend
 npm run dev
 ```
 
-Build:
+Frontend chạy tại: http://localhost:3000
+
+Chạy Frontend
 
 ```bash
-npm run build
-```
-
-Production:
-
-```bash
-npm start
-```
-
-Mở:
-
-```txt
-http://localhost:3000
+cd backend
+npm run dev
 ```
 
 ---
@@ -216,17 +296,18 @@ main
 
 ## 👥 Thành viên nhóm
 
-| MSSV | Họ tên | Vai trò |
-|-------|---------|----------|
-| | | Authentication & User |
-| | | Post & Feed |
-| | | Deploy & Advanced |
+| MSSV | Họ tên | Vai trò               |
+| ---- | ------ | --------------------- |
+|      |        | Authentication & User |
+|      |        | Post & Feed           |
+|      |        | Deploy & Advanced     |
 
 ---
 
 ## 📋 Tiến độ dự án
 
 ### Sprint 1
+
 - [ ] Setup project
 - [ ] MongoDB
 - [ ] Authentication
@@ -234,6 +315,7 @@ main
 - [ ] Feed UI
 
 ### Sprint 2
+
 - [ ] Like
 - [ ] Comment
 - [ ] Follow

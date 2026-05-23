@@ -1,3 +1,4 @@
+
 "use client";
 
 /* eslint-disable @next/next/no-img-element */
@@ -33,7 +34,7 @@ function getCurrentUserName() {
 const works = [
   {
     title: "Mobile Banking App - Modern UI Design",
-    author: "Nhi",
+    author: "Trang",
     avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=160&q=80",
     image: "https://images.unsplash.com/photo-1551650975-87deedd944c3?auto=format&fit=crop&w=1200&q=80",
     tags: ["UI/UX", "Mobile", "Fintech"],
@@ -93,7 +94,7 @@ const works = [
 
 const creators = [
   {
-    name: "Nhi Nguyen",
+    name: "Trang Nguyen",
     role: "UI/UX Designer",
     followers: "12.5K",
     avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=200&q=80",
@@ -398,10 +399,10 @@ function Header({ query, setQuery }) {
         </label>
 
         <div className="ml-auto hidden items-center gap-5 text-lg lg:flex">
-          <a className="text-slate-500 transition hover:text-[#76875f]" href="#">
+          <a className="text-slate-500 transition hover:text-[#76875f]" href="/auth">
             Login
           </a>
-          <a className="primary-button" href="#">
+          <a className="primary-button" href="/auth">
             Sign Up
           </a>
         </div>

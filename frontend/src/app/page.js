@@ -5,12 +5,15 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   FiArrowRight,
+  FiBookmark,
   FiMessageCircle,
   FiCheck,
+  FiEdit3,
   FiHeart,
   FiSearch,
   FiSend,
   FiStar,
+  FiTrash2,
   FiUser,
   FiUserPlus,
 } from "react-icons/fi";
@@ -155,9 +158,12 @@ export default function Home() {
           author: post.authorName || "Creator",
           avatar: DEFAULT_AVATAR,
           image: post.media?.[0]?.url || DEFAULT_POST_IMAGE,
+          mediaType: post.media?.[0]?.type || "image",
           tags: post.tags?.length ? post.tags : ["Portfolio"],
           likes: post.likedBy?.length || post.likes?.length || 0,
           liked: post.likedBy?.includes(currentUserName.toLowerCase()) || false,
+          saves: post.savedBy?.length || 0,
+          saved: post.savedBy?.includes(currentUserName.toLowerCase()) || false,
           content: post.content,
           isNew: true,
           comments: [],
@@ -236,6 +242,20 @@ export default function Home() {
     );
   };
 
+  const updatePostSave = (postId, saveData) => {
+    setApiWorks((currentWorks) =>
+      currentWorks.map((work) =>
+        work.id === postId
+          ? { ...work, saves: saveData.savesCount, saved: saveData.saved }
+          : work
+      )
+    );
+  };
+
+  const removePostFromFeed = (postId) => {
+    setApiWorks((currentWorks) => currentWorks.filter((work) => work.id !== postId));
+  };
+
   return (
     <main className="min-h-screen bg-[#f7f8f3] text-[#252525]">
       <Header query={query} setQuery={setQuery} />
@@ -280,6 +300,8 @@ export default function Home() {
               key={work.id || work.title}
               onCommentCreated={addCommentToPost}
               onLikeUpdated={updatePostLike}
+              onSaveUpdated={updatePostSave}
+              onDeleted={removePostFromFeed}
               currentUserName={currentUserName}
               work={work}
             />
@@ -452,8 +474,20 @@ function Hero() {
   );
 }
 
-function WorkCard({ work, index, onCommentCreated, onLikeUpdated, currentUserName }) {
+function WorkCard({
+  work,
+  index,
+  onCommentCreated,
+  onLikeUpdated,
+  onSaveUpdated,
+  onDeleted,
+  currentUserName,
+}) {
   const [likeError, setLikeError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const isOwner = work.id && work.author.trim().toLowerCase() === currentUserName.toLowerCase();
 
   const handleLike = async () => {
     setLikeError("");
@@ -483,13 +517,78 @@ function WorkCard({ work, index, onCommentCreated, onLikeUpdated, currentUserNam
     }
   };
 
+  const handleSave = async () => {
+    setActionError("");
+
+    if (!work.id) {
+      setActionError("Only saved posts can be bookmarked.");
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/api/posts/${work.id}/save`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ userName: currentUserName }),
+      });
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Save failed");
+      }
+
+      onSaveUpdated(work.id, result.data);
+    } catch (requestError) {
+      setActionError(requestError.message);
+    }
+  };
+
+  const handleDelete = async () => {
+    setActionError("");
+
+    if (!work.id || !isOwner) {
+      setActionError("You can only delete posts created by your account.");
+      return;
+    }
+
+    setIsDeleting(true);
+
+    try {
+      const response = await fetch(
+        `${API_URL}/api/posts/${work.id}?userName=${encodeURIComponent(currentUserName)}`,
+        {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        }
+      );
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Delete failed");
+      }
+
+      onDeleted(work.id);
+    } catch (requestError) {
+      setActionError(requestError.message);
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <article
       className={`work-card reveal ${work.span === "tall" ? "lg:row-span-2" : ""}`}
       style={{ "--delay": `${index * 90}ms` }}
     >
       <a className="work-image" href="#">
-        <img alt={work.title} src={work.image} />
+        {work.mediaType === "video" ? (
+          <video controls src={work.image} />
+        ) : (
+          <img alt={work.title} src={work.image} />
+        )}
       </a>
 
       <div className="mt-5 flex items-center gap-3">
@@ -497,6 +596,29 @@ function WorkCard({ work, index, onCommentCreated, onLikeUpdated, currentUserNam
         <span className="text-lg font-semibold">{work.author}</span>
       </div>
       <div className="work-actions">
+        <button
+          aria-label={work.saved ? "Unsave post" : "Save post"}
+          className={`save-action ${work.saved ? "saved" : ""}`}
+          onClick={handleSave}
+          type="button"
+        >
+          <FiBookmark /> <span>{work.saves || 0}</span>
+        </button>
+        {work.id && (
+          <a aria-label="Edit post" className="edit-action" href={`/edit-post/${work.id}`}>
+            <FiEdit3 />
+          </a>
+        )}
+        {isOwner && (
+          <button
+            aria-label="Delete post"
+            className="delete-action"
+            onClick={() => setShowDeleteModal(true)}
+            type="button"
+          >
+            <FiTrash2 />
+          </button>
+        )}
         <button
           aria-label={work.liked ? "Unlike post" : "Like post"}
           className={`like-action ${work.liked ? "liked" : ""}`}
@@ -506,7 +628,7 @@ function WorkCard({ work, index, onCommentCreated, onLikeUpdated, currentUserNam
           <FiHeart /> <span>{work.likes}</span>
         </button>
       </div>
-      {likeError && <p className="comment-error">{likeError}</p>}
+      {(likeError || actionError) && <p className="comment-error">{likeError || actionError}</p>}
       <h3 className="mt-3 work-title">{work.title}</h3>
       {work.content && <p className="mt-2 line-clamp-2 text-slate-600">{work.content}</p>}
       <div className="mt-4 flex flex-wrap gap-2">
@@ -518,6 +640,47 @@ function WorkCard({ work, index, onCommentCreated, onLikeUpdated, currentUserNam
         ))}
       </div>
       <CommentSection onCommentCreated={onCommentCreated} work={work} />
+      {showDeleteModal && (
+        <div
+          className="delete-modal-backdrop fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/45 px-4 backdrop-blur-sm"
+          role="presentation"
+        >
+          <div
+            aria-modal="true"
+            className="delete-modal w-full max-w-md rounded-[8px] border border-red-100 bg-[#fffdf8] p-6 text-center shadow-[0_28px_80px_rgba(31,41,55,0.28)]"
+            role="dialog"
+          >
+            <div className="delete-modal-icon mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-red-50 text-2xl text-red-600">
+              <FiTrash2 />
+            </div>
+            <h4 className="mt-4 font-serif text-3xl font-bold text-[#252525]">
+              Delete this post?
+            </h4>
+            <p className="mx-auto mt-3 max-w-sm text-base leading-7 text-slate-500">
+              This post will be removed from your feed. Comments, likes, and saved state attached
+              to it will disappear too.
+            </p>
+            <div className="delete-modal-actions mt-6 grid grid-cols-2 gap-3">
+              <button
+                className="modal-cancel rounded-full bg-[#eef2ea] px-5 py-3 font-bold text-[#5f6d52] transition hover:-translate-y-0.5 disabled:opacity-60"
+                disabled={isDeleting}
+                onClick={() => setShowDeleteModal(false)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="modal-delete rounded-full bg-red-600 px-5 py-3 font-bold text-white shadow-lg shadow-red-900/10 transition hover:-translate-y-0.5 hover:bg-red-700 disabled:opacity-60"
+                disabled={isDeleting}
+                onClick={handleDelete}
+                type="button"
+              >
+                {isDeleting ? "Deleting..." : "Delete Post"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </article>
   );
 }

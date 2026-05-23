@@ -354,11 +354,17 @@ img {
   aspect-ratio: 0.74;
 }
 
-.work-image img {
+.work-image img,
+.work-image video {
   height: 100%;
   object-fit: cover;
   transition: transform 480ms ease;
   width: 100%;
+}
+
+.work-image video,
+.preview-image video {
+  background: #111827;
 }
 
 .like-badge {
@@ -396,12 +402,16 @@ img {
 
 .work-actions {
   display: flex;
+  gap: 0.5rem;
   justify-content: flex-end;
   margin-top: -2.85rem;
   position: relative;
   z-index: 2;
 }
 
+.save-action,
+.edit-action,
+.delete-action,
 .like-action {
   align-items: center;
   background: rgba(255, 255, 255, 0.92);
@@ -418,9 +428,44 @@ img {
     background 180ms ease;
 }
 
+.save-action {
+  color: #6f7e5b;
+}
+
+.edit-action {
+  color: #6f7e5b;
+  width: 2.5rem;
+}
+
+.delete-action {
+  color: #9b2c2c;
+  width: 2.5rem;
+}
+
+.save-action.saved {
+  background: #edf6e9;
+  border-color: #cbdcbe;
+  color: #5f7b50;
+}
+
+.save-action.saved svg {
+  fill: currentColor;
+}
+
+.save-action:hover,
+.delete-action:hover,
+.edit-action:hover,
+.like-action:hover {
+  color: #252525;
+  transform: translateY(-2px);
+}
+
+.delete-action:hover {
+  color: #c23636;
+}
+
 .like-action:hover {
   color: #9b2c2c;
-  transform: translateY(-2px);
 }
 
 .like-action.liked {
@@ -585,6 +630,93 @@ img {
   margin-top: 0.5rem;
 }
 
+.delete-modal-backdrop {
+  align-items: center;
+  background: rgba(31, 41, 55, 0.42);
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  left: 0;
+  padding: 1rem;
+  position: fixed;
+  right: 0;
+  top: 0;
+  z-index: 60;
+}
+
+.delete-modal {
+  animation: revealUp 220ms ease both;
+  background: #fffdf8;
+  border: 1px solid #ead7d7;
+  border-radius: 8px;
+  box-shadow: 0 28px 80px rgba(31, 41, 55, 0.26);
+  max-width: 28rem;
+  padding: 1.5rem;
+  text-align: center;
+  width: min(100%, 28rem);
+}
+
+.delete-modal-icon {
+  align-items: center;
+  background: #fff1f0;
+  border-radius: 999px;
+  color: #c23636;
+  display: inline-flex;
+  font-size: 1.5rem;
+  height: 3.25rem;
+  justify-content: center;
+  width: 3.25rem;
+}
+
+.delete-modal h4 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin-top: 1rem;
+}
+
+.delete-modal p {
+  color: #64748b;
+  line-height: 1.6;
+  margin-top: 0.7rem;
+}
+
+.delete-modal-actions {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 1.35rem;
+}
+
+.modal-cancel,
+.modal-delete {
+  border-radius: 999px;
+  font-weight: 800;
+  min-height: 3rem;
+  transition: transform 180ms ease, background 180ms ease;
+}
+
+.modal-cancel {
+  background: #eef2ea;
+  color: #5f6d52;
+}
+
+.modal-delete {
+  background: #c23636;
+  color: #ffffff;
+}
+
+.modal-cancel:hover,
+.modal-delete:hover {
+  transform: translateY(-1px);
+}
+
+.modal-cancel:disabled,
+.modal-delete:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
 .post-form {
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid #e0e3da;
@@ -647,6 +779,16 @@ img {
   color: #9b2c2c;
   font-weight: 700;
   padding: 0.9rem 1rem;
+}
+
+.form-empty-state {
+  align-items: center;
+  color: #64748b;
+  display: flex;
+  font-size: 1.1rem;
+  font-weight: 800;
+  justify-content: center;
+  min-height: 24rem;
 }
 
 .primary-button:disabled {
@@ -854,7 +996,8 @@ img {
   overflow: hidden;
 }
 
-.preview-image img {
+.preview-image img,
+.preview-image video {
   height: 100%;
   object-fit: cover;
   transition: transform 420ms ease;

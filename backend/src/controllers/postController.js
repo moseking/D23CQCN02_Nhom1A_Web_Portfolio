@@ -115,11 +115,22 @@ const deletePost = async (req, res, next) => {
       return res.status(400).json({ success: false, message: "Invalid post id" });
     }
 
-    const post = await Post.findByIdAndDelete(req.params.id);
+    const post = await Post.findById(req.params.id);
 
     if (!post) {
       return res.status(404).json({ success: false, message: "Post not found" });
     }
+
+    const userName = String(req.body?.userName || req.query.userName || "").trim().toLowerCase();
+
+    if (userName && post.authorName.trim().toLowerCase() !== userName) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only delete posts created by your account",
+      });
+    }
+
+    await post.deleteOne();
 
     res.json({ success: true, message: "Post deleted successfully" });
   } catch (error) {
@@ -167,6 +178,46 @@ const toggleLikePost = async (req, res, next) => {
   }
 };
 
+const toggleSavePost = async (req, res, next) => {
+  try {
+    if (!isValidObjectId(req.params.id)) {
+      return res.status(400).json({ success: false, message: "Invalid post id" });
+    }
+
+    const userName = String(req.body.userName || req.body.authorName || "nhuquynh")
+      .trim()
+      .toLowerCase();
+
+    if (!userName) {
+      return res.status(400).json({ success: false, message: "User name is required" });
+    }
+
+    const post = await Post.findById(req.params.id);
+
+    if (!post) {
+      return res.status(404).json({ success: false, message: "Post not found" });
+    }
+
+    const hasSaved = post.savedBy.includes(userName);
+    post.savedBy = hasSaved
+      ? post.savedBy.filter((item) => item !== userName)
+      : [...post.savedBy, userName];
+
+    await post.save();
+
+    res.json({
+      success: true,
+      data: {
+        saved: !hasSaved,
+        savesCount: post.savedBy.length,
+        savedBy: post.savedBy,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getPosts,
   getPostById,
@@ -174,4 +225,5 @@ module.exports = {
   updatePost,
   deletePost,
   toggleLikePost,
+  toggleSavePost,
 };

@@ -1,19 +1,24 @@
 "use client";
 
 import { useEffect } from "react";
-import { socket } from "@/lib/socket";
+import { socket } from "../lib/socket";
 
 export default function SocketProvider({ user }) {
   useEffect(() => {
-    if (!user?._id) return;
+    const userId = user?._id || user?.id;
 
-    socket.connect();
-    socket.emit("add_user", user._id);
+    if (!userId) return;
+
+    if (!socket.connected) {
+      socket.connect();
+    }
+
+    socket.emit("add_user", userId);
 
     return () => {
       socket.disconnect();
     };
-  }, [user]);
+  }, [user?._id, user?.id]);
 
   return null;
 }

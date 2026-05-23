@@ -1,4 +1,5 @@
 const express = require("express");
+
 const {
   getPosts,
   getPostById,
@@ -8,30 +9,31 @@ const {
   toggleLikePost,
   toggleSavePost,
 } = require("../controllers/postController");
+
 const {
   getCommentsByPost,
   createComment,
 } = require("../controllers/commentController");
-const authMiddleware = require("../middlewares/authMiddleware");
+
+const { protect } = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
-router.route("/").get(getPosts).post(authMiddleware, createPost);
+router.route("/").get(getPosts).post(protect, createPost);
 
 router
   .route("/:postId/comments")
   .get(getCommentsByPost)
-  .post(authMiddleware, createComment);
+  .post(protect, createComment);
 
-router.route("/:id/like").post(authMiddleware, toggleLikePost);
-
-router.route("/:id/save").post(authMiddleware, toggleSavePost);
+router.route("/:id/like").post(protect, toggleLikePost);
+router.route("/:id/save").post(protect, toggleSavePost);
 
 router
   .route("/:id")
   .get(getPostById)
-  .put(authMiddleware, updatePost)
-  .patch(authMiddleware, updatePost)
-  .delete(authMiddleware, deletePost);
+  .put(protect, updatePost)
+  .patch(protect, updatePost)
+  .delete(protect, deletePost);
 
 module.exports = router;

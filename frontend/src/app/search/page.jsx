@@ -1,68 +1,115 @@
 "use client";
 
 import { useState } from "react";
+import { api } from "@/lib/axios";
 
 export default function SearchPage() {
   const [query, setQuery] = useState("");
+  const [type, setType] = useState("");
   const [users, setUsers] = useState([]);
   const [posts, setPosts] = useState([]);
+  const [loading, setLoading] = useState(false);
 
   const handleSearch = async (e) => {
     e.preventDefault();
 
+    setLoading(true);
+
     try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/search?query=${query}`
-      );
+      const res = await api.get("/search", {
+        params: {
+          query,
+          type: type || undefined,
+        },
+      });
 
-      const data = await res.json();
-
-      setUsers(data.users || []);
-      setPosts(data.posts || []);
+      setUsers(res.data.users || []);
+      setPosts(res.data.posts || []);
     } catch (error) {
-      console.log(error);
+      console.log("Search error:", error);
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <main className="max-w-3xl mx-auto p-6">
-      <h1 className="text-3xl font-bold mb-5">Search</h1>
+    <main className="mx-auto max-w-3xl p-6">
+      <h1 className="mb-5 text-3xl font-bold">Search</h1>
 
-      <form onSubmit={handleSearch} className="flex gap-2 mb-6">
+      <form onSubmit={handleSearch} className="mb-6 flex gap-2">
         <input
           type="text"
-          placeholder="Search..."
-          className="border p-2 rounded-lg flex-1"
+          placeholder="Search user, post, tag..."
+          className="flex-1 rounded-lg border p-2"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
 
-        <button className="bg-black text-white px-4 py-2 rounded-lg">
+        <select
+          value={type}
+          onChange={(e) => setType(e.target.value)}
+          className="rounded-lg border p-2"
+        >
+          <option value="">All</option>
+          <option value="user">Users</option>
+          <option value="post">Posts</option>
+        </select>
+
+        <button className="rounded-lg bg-black px-4 py-2 text-white">
           Search
         </button>
       </form>
 
-      <div className="space-y-6">
-        <div>
-          <h2 className="font-bold mb-2">Users</h2>
+      {loading && <p>Đang tìm...</p>}
 
-          {users.map((user) => (
-            <div key={user._id} className="border rounded-lg p-3 mb-2">
-              <p>{user.username}</p>
-            </div>
-          ))}
+      {!loading && (
+        <div className="space-y-6">
+          <div>
+            <h2 className="mb-2 font-bold">Users</h2>
+
+            {users.length === 0 ? (
+              <p className="text-sm text-gray-500">No users found.</p>
+            ) : (
+              users.map((user) => (
+                <div key={user._id} className="mb-2 rounded-lg border p-3">
+                  <p className="font-semibold">{user.username}</p>
+                  {user.bio && (
+                    <p className="text-sm text-gray-500">{user.bio}</p>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+
+          <div>
+            <h2 className="mb-2 font-bold">Posts</h2>
+
+            {posts.length === 0 ? (
+              <p className="text-sm text-gray-500">No posts found.</p>
+            ) : (
+              posts.map((post) => (
+                <div key={post._id} className="mb-2 rounded-lg border p-3">
+                  <p className="font-semibold">{post.title}</p>
+                  <p className="text-sm text-gray-500 line-clamp-2">
+                    {post.content}
+                  </p>
+
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {post.tags?.map((tag) => (
+                      <span
+                        key={tag}
+                        className="rounded-full bg-gray-100 px-2 py-1 text-xs"
+                      >
+                        #{tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
-
-        <div>
-          <h2 className="font-bold mb-2">Posts</h2>
-
-          {posts.map((post) => (
-            <div key={post._id} className="border rounded-lg p-3 mb-2">
-              <p>{post.caption}</p>
-            </div>
-          ))}
-        </div>
-      </div>
+      )}
     </main>
   );
 }

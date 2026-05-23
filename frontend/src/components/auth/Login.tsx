@@ -69,7 +69,6 @@ export function Login({
 }: LoginProps) {
   const {
     login,
-    loginWithGoogle,
     isLoading,
     error,
   } = useAuthStore();
@@ -78,15 +77,10 @@ export function Login({
     values: LoginFormValues
   ) => {
     await login(values);
-
+    console.log("LOGIN SUCCESS");
     onNavigateToHome();
   };
 
-  const handleGoogleLogin = async () => {
-    await loginWithGoogle();
-
-    onNavigateToHome();
-  };
 
   return (
     <AuthLayout
@@ -120,7 +114,6 @@ export function Login({
         onNavigateToRegister={
           onNavigateToRegister
         }
-        onGoogleLogin={handleGoogleLogin}
         isLoading={isLoading}
         error={error}
       />

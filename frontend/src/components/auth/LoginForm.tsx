@@ -9,7 +9,6 @@ import {
   Mail,
 } from "lucide-react";
 
-import { FcGoogle } from "react-icons/fc";
 
 import { useState } from "react";
 
@@ -32,7 +31,6 @@ interface LoginFormProps {
 
   onNavigateToRegister?: () => void;
 
-  onGoogleLogin?: () => void | Promise<void>;
 
   isLoading?: boolean;
 
@@ -42,7 +40,6 @@ interface LoginFormProps {
 export function LoginForm({
   onSubmit,
   onNavigateToRegister,
-  onGoogleLogin,
   isLoading = false,
   error,
 }: LoginFormProps) {
@@ -200,15 +197,6 @@ export function LoginForm({
         </div>
       </div>
 
-      {/* Google */}
-      <SocialLoginButton
-        icon={<FcGoogle size={22} />}
-        label="Continue with Google"
-        onClick={() =>
-          onGoogleLogin?.()
-        }
-        disabled={isLoading}
-      />
 
       {/* Navigate */}
       <p className="mt-4 text-center text-sm text-[#6B7280]">

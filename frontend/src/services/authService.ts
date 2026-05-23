@@ -11,4 +11,6 @@ export const authService = {
 
   register: async (data: RegisterFormValues) =>
     api.post("/auth/register", data),
+
+  me: async () => api.get("/auth/me"),
 };

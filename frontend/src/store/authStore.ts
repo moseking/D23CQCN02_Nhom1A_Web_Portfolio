@@ -33,6 +33,8 @@ type AuthState = {
     data: RegisterFormValues
   ) => Promise<void>;
 
+  fetchCurrentUser: () => Promise<void>;
+
   logout: () => void;
 };
 
@@ -45,7 +47,10 @@ export const useAuthStore =
         ? localStorage.getItem("token")
         : null,
 
-    isAuthenticated: false,
+    isAuthenticated:
+      typeof window !== "undefined"
+        ? !!localStorage.getItem("token")
+        : false,
 
     isLoading: false,
 
@@ -68,6 +73,11 @@ export const useAuthStore =
           res.data.token
         );
 
+        localStorage.setItem(
+          "username",
+          res.data.user.username
+        );
+
         set({
           user: res.data.user,
 
@@ -77,12 +87,18 @@ export const useAuthStore =
 
           isLoading: false,
         });
-      } catch (error) {
+      } catch (error: any) {
+        console.log(error);
+
         set({
-          error: "Login failed",
+          error:
+            error.response?.data?.message ||
+            "Login failed",
 
           isLoading: false,
         });
+
+        throw error;
       }
     },
 
@@ -105,6 +121,11 @@ export const useAuthStore =
           res.data.token
         );
 
+        localStorage.setItem(
+          "username",
+          res.data.user.username
+        );
+
         set({
           user: res.data.user,
 
@@ -114,18 +135,53 @@ export const useAuthStore =
 
           isLoading: false,
         });
-      } catch (error) {
+      } catch (error: any) {
+        console.log(error);
+
         set({
-          error: "Register failed",
+          error:
+            error.response?.data?.message ||
+            "Register failed",
 
           isLoading: false,
         });
       }
     },
+    fetchCurrentUser: async () => {
+      try {
+        const token =
+          localStorage.getItem("token");
 
+        if (!token) return;
+
+        const res =
+          await authService.me();
+
+        set({
+          user: res.data,
+
+          isAuthenticated: true,
+        });
+      } catch (error) {
+        localStorage.removeItem("token");
+
+        localStorage.removeItem(
+          "username"
+        );
+
+        set({
+          user: null,
+
+          token: null,
+
+          isAuthenticated: false,
+        });
+      }
+    },
     logout: () => {
       localStorage.removeItem("token");
 
+      localStorage.removeItem("username");
       set({
         user: null,
 

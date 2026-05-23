@@ -10,7 +10,10 @@ exports.search = async (req, res) => {
 
     if (type === "user" || !type) {
       users = await User.find({
-        username: { $regex: query || "", $options: "i" },
+        $or: [
+          { username: { $regex: query || "", $options: "i" } },
+          { bio: { $regex: query || "", $options: "i" } },
+        ],
       }).select("username avatar bio");
     }
 
@@ -18,11 +21,16 @@ exports.search = async (req, res) => {
       const postFilter = {};
 
       if (query) {
-        postFilter.caption = { $regex: query, $options: "i" };
+        postFilter.$or = [
+          { title: { $regex: query, $options: "i" } },
+          { content: { $regex: query, $options: "i" } },
+          { authorName: { $regex: query, $options: "i" } },
+          { tags: { $regex: query, $options: "i" } },
+        ];
       }
 
       if (tag) {
-        postFilter.tags = { $in: [tag] };
+        postFilter.tags = { $regex: tag, $options: "i" };
       }
 
       posts = await Post.find(postFilter)

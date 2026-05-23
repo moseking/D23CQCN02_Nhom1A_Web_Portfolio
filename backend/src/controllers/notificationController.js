@@ -2,16 +2,18 @@ const Notification = require("../models/Notification");
 
 exports.getNotifications = async (req, res) => {
   try {
+    const userId = req.user?._id || req.user?.id;
+
     const notifications = await Notification.find({
-      receiver: req.user.id,
+      receiver: userId,
     })
       .populate("sender", "username avatar")
-      .populate("post", "caption image video")
+      .populate("post", "title content media authorName")
       .sort({ createdAt: -1 });
 
     res.status(200).json({
       success: true,
-      data: notifications,
+      notifications,
     });
   } catch (error) {
     res.status(500).json({
@@ -24,18 +26,27 @@ exports.getNotifications = async (req, res) => {
 
 exports.markAsRead = async (req, res) => {
   try {
+    const userId = req.user?._id || req.user?.id;
+
     const notification = await Notification.findOneAndUpdate(
       {
         _id: req.params.id,
-        receiver: req.user.id,
+        receiver: userId,
       },
       { isRead: true },
       { new: true }
     );
 
+    if (!notification) {
+      return res.status(404).json({
+        success: false,
+        message: "Notification not found",
+      });
+    }
+
     res.status(200).json({
       success: true,
-      data: notification,
+      notification,
     });
   } catch (error) {
     res.status(500).json({
@@ -48,7 +59,12 @@ exports.markAsRead = async (req, res) => {
 
 exports.markAllAsRead = async (req, res) => {
   try {
-    await Notification.updateMany({ receiver: req.user.id }, { isRead: true });
+    const userId = req.user?._id || req.user?.id;
+
+    await Notification.updateMany(
+      { receiver: userId, isRead: false },
+      { isRead: true }
+    );
 
     res.status(200).json({
       success: true,

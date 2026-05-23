@@ -23,9 +23,10 @@ io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
 
   socket.on("add_user", (userId) => {
-    onlineUsers.set(userId, socket.id);
+    if (!userId) return;
 
-    console.log("Online users:", onlineUsers);
+    onlineUsers.set(userId.toString(), socket.id);
+    console.log("Online users:", Array.from(onlineUsers.entries()));
   });
 
   socket.on("disconnect", () => {
@@ -42,15 +43,6 @@ io.on("connection", (socket) => {
 
 app.set("io", io);
 app.set("onlineUsers", onlineUsers);
-
-const uploadRoutes = require("./routes/uploadRoutes");
-app.use("/api/upload", uploadRoutes);
-
-const notificationRoutes = require("./routes/notificationRoutes");
-app.use("/api/notifications", notificationRoutes);
-
-/* const searchRoutes = require("./routes/searchRoutes");
-app.use("/api/search", searchRoutes); */
 
 connectDB()
   .then(() => {

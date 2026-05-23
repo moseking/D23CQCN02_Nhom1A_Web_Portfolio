@@ -1,27 +1,30 @@
 const Notification = require("../models/Notification");
 
-const createNotification = async ({
+const createNotification = async (
   req,
-  sender,
-  receiver,
-  type,
-  post = null,
-}) => {
+  { sender, receiver, post = null, type, message }
+) => {
+  if (!sender || !receiver || !type || !message) return null;
+
   if (sender.toString() === receiver.toString()) return null;
 
   const notification = await Notification.create({
     sender,
     receiver,
-    type,
     post,
+    type,
+    message,
   });
 
   const populatedNotification = await Notification.findById(notification._id)
     .populate("sender", "username avatar")
-    .populate("post", "caption image video");
+    .populate("receiver", "username avatar")
+    .populate("post", "title content media authorName");
 
   const io = req.app.get("io");
   const onlineUsers = req.app.get("onlineUsers");
+
+  if (!io || !onlineUsers) return populatedNotification;
 
   const receiverSocketId = onlineUsers.get(receiver.toString());
 

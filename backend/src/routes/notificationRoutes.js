@@ -5,12 +5,12 @@ const {
   markAllAsRead,
 } = require("../controllers/notificationController");
 
-// const authMiddleware = require("../middlewares/authMiddleware");
+const authMiddleware = require("../middlewares/authMiddleware");
 
 const router = express.Router();
 
-router.get("/", getNotifications);
-router.put("/read-all", markAllAsRead);
-router.put("/:id/read", markAsRead);
+router.get("/", authMiddleware, getNotifications);
+router.put("/read-all", authMiddleware, markAllAsRead);
+router.put("/:id/read", authMiddleware, markAsRead);
 
 module.exports = router;

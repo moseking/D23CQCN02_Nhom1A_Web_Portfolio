@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const Post = require("../models/Post");
+const createNotification = require("../utils/createNotification");
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
@@ -38,11 +39,7 @@ const getPosts = async (req, res, next) => {
     const filter = buildPostFilter(req.query);
 
     const [posts, total] = await Promise.all([
-      Post.find(filter)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
+      Post.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
       Post.countDocuments(filter),
     ]);
 
@@ -64,13 +61,17 @@ const getPosts = async (req, res, next) => {
 const getPostById = async (req, res, next) => {
   try {
     if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ success: false, message: "Invalid post id" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid post id" });
     }
 
     const post = await Post.findById(req.params.id).lean();
 
     if (!post) {
-      return res.status(404).json({ success: false, message: "Post not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Post not found" });
     }
 
     res.json({ success: true, data: post });
@@ -81,8 +82,18 @@ const getPostById = async (req, res, next) => {
 
 const createPost = async (req, res, next) => {
   try {
-    const post = await Post.create(req.body);
-    res.status(201).json({ success: true, data: post });
+    const userId = req.user?._id || req.user?.id;
+
+    const post = await Post.create({
+      ...req.body,
+      author: userId || req.body.author || null,
+      authorName: req.body.authorName || req.user?.username || "Anonymous",
+    });
+
+    res.status(201).json({
+      success: true,
+      data: post,
+    });
   } catch (error) {
     next(error);
   }
@@ -91,7 +102,9 @@ const createPost = async (req, res, next) => {
 const updatePost = async (req, res, next) => {
   try {
     if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ success: false, message: "Invalid post id" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid post id" });
     }
 
     const post = await Post.findByIdAndUpdate(req.params.id, req.body, {
@@ -100,7 +113,9 @@ const updatePost = async (req, res, next) => {
     });
 
     if (!post) {
-      return res.status(404).json({ success: false, message: "Post not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Post not found" });
     }
 
     res.json({ success: true, data: post });
@@ -112,16 +127,22 @@ const updatePost = async (req, res, next) => {
 const deletePost = async (req, res, next) => {
   try {
     if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ success: false, message: "Invalid post id" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid post id" });
     }
 
     const post = await Post.findById(req.params.id);
 
     if (!post) {
-      return res.status(404).json({ success: false, message: "Post not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Post not found" });
     }
 
-    const userName = String(req.body?.userName || req.query.userName || "").trim().toLowerCase();
+    const userName = String(req.body?.userName || req.query.userName || "")
+      .trim()
+      .toLowerCase();
 
     if (userName && post.authorName.trim().toLowerCase() !== userName) {
       return res.status(403).json({
@@ -141,27 +162,51 @@ const deletePost = async (req, res, next) => {
 const toggleLikePost = async (req, res, next) => {
   try {
     if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ success: false, message: "Invalid post id" });
+      return res.status(400).json({
+        success: false,
+        message: "Invalid post id",
+      });
     }
 
-    const userName = String(req.body.userName || req.body.authorName || "nhuquynh")
-      .trim()
-      .toLowerCase();
+    const userId = req.user?._id || req.user?.id;
 
-    if (!userName) {
-      return res.status(400).json({ success: false, message: "User name is required" });
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "You must login to like this post",
+      });
     }
 
     const post = await Post.findById(req.params.id);
 
     if (!post) {
-      return res.status(404).json({ success: false, message: "Post not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Post not found",
+      });
     }
 
-    const hasLiked = post.likedBy.includes(userName);
-    post.likedBy = hasLiked
-      ? post.likedBy.filter((item) => item !== userName)
-      : [...post.likedBy, userName];
+    const hasLiked = post.likes.some(
+      (id) => id.toString() === userId.toString()
+    );
+
+    if (hasLiked) {
+      post.likes = post.likes.filter(
+        (id) => id.toString() !== userId.toString()
+      );
+    } else {
+      post.likes.push(userId);
+
+      if (post.author) {
+        await createNotification(req, {
+          sender: userId,
+          receiver: post.author,
+          post: post._id,
+          type: "like",
+          message: "đã thích bài viết của bạn",
+        });
+      }
+    }
 
     await post.save();
 
@@ -169,8 +214,8 @@ const toggleLikePost = async (req, res, next) => {
       success: true,
       data: {
         liked: !hasLiked,
-        likesCount: post.likedBy.length,
-        likedBy: post.likedBy,
+        likesCount: post.likes.length,
+        likes: post.likes,
       },
     });
   } catch (error) {
@@ -181,21 +226,29 @@ const toggleLikePost = async (req, res, next) => {
 const toggleSavePost = async (req, res, next) => {
   try {
     if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ success: false, message: "Invalid post id" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid post id" });
     }
 
-    const userName = String(req.body.userName || req.body.authorName || "nhuquynh")
+    const userName = String(
+      req.body.userName || req.body.authorName || "nhuquynh"
+    )
       .trim()
       .toLowerCase();
 
     if (!userName) {
-      return res.status(400).json({ success: false, message: "User name is required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "User name is required" });
     }
 
     const post = await Post.findById(req.params.id);
 
     if (!post) {
-      return res.status(404).json({ success: false, message: "Post not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Post not found" });
     }
 
     const hasSaved = post.savedBy.includes(userName);

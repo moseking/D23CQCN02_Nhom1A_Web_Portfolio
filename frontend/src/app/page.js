@@ -18,6 +18,8 @@ import {
   FiUserPlus,
 } from "react-icons/fi";
 
+import { useAuthStore } from "../store/authStore";
+
 const categories = [
   "All",
   "UI/UX",
@@ -27,6 +29,7 @@ const categories = [
   "3D",
   "Motion",
 ];
+
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
@@ -421,6 +424,11 @@ export default function Home() {
 }
 
 function Header({ query, setQuery }) {
+  const {
+    user,
+    isAuthenticated,
+    logout,
+  } = useAuthStore();
   return (
     <header className="sticky top-0 z-30 border-b border-[#e0e3da] bg-[#f7f8f3]/88 px-6 py-5 shadow-[0_8px_30px_rgba(41,45,36,0.06)] backdrop-blur-xl sm:px-10 lg:px-12">
       <nav className="mx-auto flex max-w-[1840px] items-center gap-7">
@@ -463,15 +471,45 @@ function Header({ query, setQuery }) {
         </label>
 
         <div className="ml-auto hidden items-center gap-5 text-lg lg:flex">
-          <a className="text-slate-500 transition hover:text-[#76875f]" href="/auth">
-            Login
-          </a>
-          <a className="primary-button" href="/auth">
-            Sign Up
-          </a>
+          {isAuthenticated ? (
+            <div className="flex items-center gap-4">
+              <button
+                className="text-slate-500 transition hover:text-red-500"
+                onClick={logout}
+                type="button"
+              >
+                Logout
+              </button>
+
+              <span className="font-bold text-[#76875f]">
+                {user?.username ||
+                  localStorage.getItem("username")}
+              </span>
+            </div>
+          ) : (
+            <>
+              <a
+                className="text-slate-500 transition hover:text-[#76875f]"
+                href="/auth?mode=login"
+              >
+                Login
+              </a>
+
+              <a
+                className="primary-button"
+                href="/auth?mode=register"
+              >
+                Sign Up
+              </a>
+            </>
+          )}
         </div>
 
-        <button aria-label="Open profile" className="icon-button" type="button">
+        <button
+          aria-label="Open profile"
+          className="icon-button"
+          type="button"
+        >
           <FiUser />
         </button>
       </nav>

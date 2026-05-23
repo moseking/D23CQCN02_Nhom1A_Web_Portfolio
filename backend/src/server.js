@@ -49,12 +49,9 @@ app.use("/api/upload", uploadRoutes);
 const notificationRoutes = require("./routes/notificationRoutes");
 app.use("/api/notifications", notificationRoutes);
 
-const searchRoutes = require("./routes/searchRoutes");
-app.use("/api/search", searchRoutes);
+/* const searchRoutes = require("./routes/searchRoutes");
+app.use("/api/search", searchRoutes); */
 
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
 connectDB()
   .then(() => {
     server.listen(PORT, () => {

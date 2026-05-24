@@ -14,6 +14,7 @@ import {
   FiStar,
   FiUpload,
 } from "react-icons/fi";
+import { api } from "../../../lib/axios";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 const FALLBACK_AUTHOR = "nhuquynh";
@@ -200,21 +201,17 @@ export default function EditPostPage() {
     const media = mediaValue ? [{ url: mediaValue, type: mediaType }] : [];
 
     try {
-      const response = await fetch(`${API_URL}/api/posts/${postId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+      const response = await api.patch(
+        `/posts/${postId}`,
+        {
           title: form.title.trim(),
           content: form.content.trim(),
-          authorName: form.authorName.trim() || FALLBACK_AUTHOR,
           tags,
           media,
           status: "published",
-        }),
-      });
-      const result = await response.json();
+        }
+      );
+      const result = response.data;
 
       if (!response.ok || !result.success) {
         throw new Error(result.message || "Update post failed");

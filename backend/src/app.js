@@ -7,6 +7,7 @@ const notificationRoutes = require("./routes/notificationRoutes");
 const searchRoutes = require("./routes/searchRoutes");
 const uploadRoutes = require("./routes/uploadRoutes");
 
+const adminRoutes = require("./routes/adminRoutes");
 const app = express();
 
 app.use(
@@ -27,6 +28,7 @@ app.use("/api/posts", postRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/search", searchRoutes);
 app.use("/api/upload", uploadRoutes);
+app.use("/api/admin",adminRoutes);
 
 app.use((req, res) => {
   res.status(404).json({
@@ -34,6 +36,7 @@ app.use((req, res) => {
     message: "Route not found",
   });
 });
+
 
 app.use((error, req, res, next) => {
   const isPayloadTooLarge = error.type === "entity.too.large";

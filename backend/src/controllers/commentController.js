@@ -54,8 +54,7 @@ const createComment = async (req, res, next) => {
 
     const comment = await Comment.create({
       post: postId,
-      author: userId || null,
-      authorName: req.body.authorName,
+      authorName: req.user.username,
       content: req.body.content,
     });
 

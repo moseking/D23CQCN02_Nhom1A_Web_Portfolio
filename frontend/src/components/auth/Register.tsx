@@ -40,17 +40,13 @@ const registerShowcaseImages = [
 const registerFeatures = ['Masonry portfolios', 'Creator analytics', 'Global community'];
 
 export function Register({ onNavigateToLogin, onNavigateToHome }: RegisterProps) {
-  const { register, loginWithGoogle, isLoading, error } = useAuthStore();
+  const { register, isLoading, error } = useAuthStore();
 
   const handleSubmit = async (values: RegisterFormValues) => {
     await register(values);
     onNavigateToHome();
   };
 
-  const handleGoogleLogin = async () => {
-    await loginWithGoogle();
-    onNavigateToHome();
-  };
 
   return (
     <AuthLayout
@@ -82,7 +78,6 @@ export function Register({ onNavigateToLogin, onNavigateToHome }: RegisterProps)
       <RegisterForm
         onSubmit={handleSubmit}
         onNavigateToLogin={onNavigateToLogin}
-        onGoogleLogin={handleGoogleLogin}
         isLoading={isLoading}
         error={error}
       />

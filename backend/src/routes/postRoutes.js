@@ -1,6 +1,11 @@
 const express = require("express");
 
 const {
+  protect,
+} = require(
+  "../middleware/authMiddleware"
+);
+const {
   getPosts,
   getPostById,
   createPost,
@@ -15,20 +20,17 @@ const {
   createComment,
 } = require("../controllers/commentController");
 
-const { protect } = require("../middleware/authMiddleware");
 
 const router = express.Router();
-
-router.route("/").get(getPosts).post(protect, createPost);
-
-router
-  .route("/:postId/comments")
+router.route("/").get(getPosts).post(protect,createPost);
+router.route("/:postId/comments")
   .get(getCommentsByPost)
-  .post(protect, createComment);
-
+  .post(
+    protect,
+    createComment
+  );
 router.route("/:id/like").post(protect, toggleLikePost);
 router.route("/:id/save").post(protect, toggleSavePost);
-
 router
   .route("/:id")
   .get(getPostById)

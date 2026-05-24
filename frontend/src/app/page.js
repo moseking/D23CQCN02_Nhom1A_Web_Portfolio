@@ -19,6 +19,7 @@ import {
 } from "react-icons/fi";
 
 import { useAuthStore } from "../store/authStore";
+import { api } from "../lib/axios";
 
 const categories = [
   "All",
@@ -169,8 +170,13 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [visibleCount, setVisibleCount] = useState(6);
   const [apiWorks, setApiWorks] = useState([]);
+  const [creators, setCreators] = useState([]);
   const [feedStatus, setFeedStatus] = useState("loading");
-  const [currentUserName] = useState(getCurrentUserName);
+  const [currentUserName, setCurrentUserName] = useState("nhuquynh");
+
+  useEffect(() => {
+    setCurrentUserName(getCurrentUserName());
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -247,6 +253,36 @@ export default function Home() {
 
     return () => controller.abort();
   }, [currentUserName]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadCreators() {
+      try {
+        const response = await api.get("/auth/creators?limit=6", {
+          signal: controller.signal,
+        });
+
+        if (response.data?.success) {
+          setCreators(
+            response.data.data.map((creator) => ({
+              name: creator.username,
+              role: creator.bio || `${creator.postsCount} posts`,
+              postsCount: creator.postsCount,
+              avatar: creator.avatar || DEFAULT_AVATAR,
+            }))
+          );
+        }
+      } catch (error) {
+        if (error.name !== "AbortError") {
+          setCreators([]);
+        }
+      }
+    }
+
+    loadCreators();
+    return () => controller.abort();
+  }, []);
 
   const filteredWorks = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -415,6 +451,12 @@ export default function Home() {
               <CreatorCard creator={creator} index={index} key={creator.name} />
             ))}
           </div>
+
+          {creators.length === 0 && (
+            <p className="mt-8 text-center text-sm font-semibold text-slate-500">
+              No creators yet.
+            </p>
+          )}
         </div>
       </section>
 
@@ -424,11 +466,19 @@ export default function Home() {
 }
 
 function Header({ query, setQuery }) {
+  const [mounted, setMounted] = useState(false);
   const {
     user,
     isAuthenticated,
     logout,
   } = useAuthStore();
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const username = user?.username || "";
+
   return (
     <header className="sticky top-0 z-30 border-b border-[#e0e3da] bg-[#f7f8f3]/88 px-6 py-5 shadow-[0_8px_30px_rgba(41,45,36,0.06)] backdrop-blur-xl sm:px-10 lg:px-12">
       <nav className="mx-auto flex max-w-[1840px] items-center gap-7">
@@ -470,8 +520,10 @@ function Header({ query, setQuery }) {
           />
         </label>
 
-        <div className="ml-auto hidden items-center gap-5 text-lg lg:flex">
-          {isAuthenticated ? (
+        <div className="ml-auto hidden min-h-[44px] items-center gap-5 text-lg lg:flex">
+          {!mounted ? (
+            <div aria-hidden="true" className="h-11 w-[170px]" />
+          ) : isAuthenticated ? (
             <div className="flex items-center gap-4">
               <button
                 className="text-slate-500 transition hover:text-red-500"
@@ -482,8 +534,7 @@ function Header({ query, setQuery }) {
               </button>
 
               <span className="font-bold text-[#76875f]">
-                {user?.username ||
-                  localStorage.getItem("username")}
+                {username}
               </span>
             </div>
           ) : (
@@ -589,6 +640,9 @@ function WorkCard({
   onDeleted,
   currentUserName,
 }) {
+  const {
+    isAuthenticated,
+  } = useAuthStore();
   const [likeError, setLikeError] = useState("");
   const [actionError, setActionError] = useState("");
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -606,18 +660,16 @@ function WorkCard({
       return;
     }
 
+    if (!isAuthenticated) {
+      setLikeError("Please login to like posts.");
+      return;
+    }
+
     try {
-      const response = await fetch(`${API_URL}/api/posts/${work.id}/like`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ userName: currentUserName }),
-      });
+      const response = await api.post(`/posts/${work.id}/like`);
+      const result = response.data;
 
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
+      if (!result.success) {
         throw new Error(result.message || "Like failed");
       }
 
@@ -635,18 +687,16 @@ function WorkCard({
       return;
     }
 
+    if (!isAuthenticated) {
+      setActionError("Please login to save posts.");
+      return;
+    }
+
     try {
-      const response = await fetch(`${API_URL}/api/posts/${work.id}/save`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ userName: currentUserName }),
-      });
+      const response = await api.post(`/posts/${work.id}/save`);
+      const result = response.data;
 
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
+      if (!result.success) {
         throw new Error(result.message || "Save failed");
       }
 
@@ -667,21 +717,10 @@ function WorkCard({
     setIsDeleting(true);
 
     try {
-      const response = await fetch(
-        `${API_URL}/api/posts/${work.id}?userName=${encodeURIComponent(
-          currentUserName
-        )}`,
-        {
-          method: "DELETE",
-          headers: {
-            "Content-Type": "application/json",
-          },
-        }
-      );
+      const response = await api.delete(`/posts/${work.id}`);
+      const result = response.data;
 
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
+      if (!result.success) {
         throw new Error(result.message || "Delete failed");
       }
 
@@ -830,13 +869,21 @@ function getCurrentCommentAuthor() {
 }
 
 function CommentSection({ work, onCommentCreated }) {
+  const {
+    user,
+    isAuthenticated,
+  } = useAuthStore();
   const [content, setContent] = useState("");
-  const [authorName, setAuthorName] = useState(getCurrentCommentAuthor);
+  const [authorName, setAuthorName] = useState("nhuquynh");
   const [isOpen, setIsOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
 
   const comments = work.comments || [];
+
+  useEffect(() => {
+    setAuthorName(user?.username || getCurrentCommentAuthor());
+  }, [user?.username]);
 
   const submitComment = async (event) => {
     event.preventDefault();
@@ -847,23 +894,23 @@ function CommentSection({ work, onCommentCreated }) {
       return;
     }
 
+    if (!isAuthenticated) {
+      setError("Please login to comment.");
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      const response = await fetch(`${API_URL}/api/posts/${work.id}/comments`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          authorName: authorName.trim() || "nhuquynh",
+      const response = await api.post(
+        `/posts/${work.id}/comments`,
+        {
           content: content.trim(),
-        }),
-      });
+        }
+      );
+      const result = response.data;
 
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
+      if (!result.success) {
         throw new Error(result.message || "Create comment failed");
       }
 
@@ -917,6 +964,7 @@ function CommentSection({ work, onCommentCreated }) {
             <input
               onChange={(event) => setAuthorName(event.target.value)}
               placeholder="Author"
+              readOnly
               type="text"
               value={authorName}
             />
@@ -970,10 +1018,8 @@ function CreatorCard({ creator, index }) {
 
       <div className="mt-8 flex items-end justify-between border-t border-[#dfe3d9] pt-6">
         <div>
-          <p className="text-sm uppercase tracking-[0.14em] text-slate-500">
-            Followers
-          </p>
-          <p className="mt-2 text-2xl font-semibold">{creator.followers}</p>
+          <p className="text-sm uppercase tracking-[0.14em] text-slate-500">Posts</p>
+          <p className="mt-2 text-2xl font-semibold">{creator.postsCount || 0} posts</p>
         </div>
 
         <button className="follow-button" type="button">

@@ -15,6 +15,7 @@ import {
   FiStar,
   FiTrash2,
   FiUser,
+  FiUserCheck,
   FiUserPlus,
 } from "react-icons/fi";
 
@@ -266,9 +267,12 @@ export default function Home() {
         if (response.data?.success) {
           setCreators(
             response.data.data.map((creator) => ({
+              id: creator._id,
               name: creator.username,
               role: creator.bio || `${creator.postsCount} posts`,
               postsCount: creator.postsCount,
+              followersCount: creator.followersCount || 0,
+              isFollowing: creator.isFollowing || false,
               avatar: creator.avatar || DEFAULT_AVATAR,
             }))
           );
@@ -340,6 +344,20 @@ export default function Home() {
   const removePostFromFeed = (postId) => {
     setApiWorks((currentWorks) =>
       currentWorks.filter((work) => work.id !== postId)
+    );
+  };
+
+  const updateCreatorFollow = (creatorId, followData) => {
+    setCreators((currentCreators) =>
+      currentCreators.map((creator) =>
+        creator.id === creatorId
+          ? {
+              ...creator,
+              isFollowing: followData.followed,
+              followersCount: followData.followersCount,
+            }
+          : creator
+      )
     );
   };
 
@@ -448,7 +466,12 @@ export default function Home() {
 
           <div className="mt-12 grid grid-cols-1 gap-7 md:grid-cols-2 xl:grid-cols-3">
             {creators.map((creator, index) => (
-              <CreatorCard creator={creator} index={index} key={creator.name} />
+              <CreatorCard
+                creator={creator}
+                index={index}
+                key={creator.id || creator.name}
+                onFollowUpdated={updateCreatorFollow}
+              />
             ))}
           </div>
 
@@ -996,7 +1019,42 @@ function CommentSection({ work, onCommentCreated }) {
   );
 }
 
-function CreatorCard({ creator, index }) {
+function CreatorCard({ creator, index, onFollowUpdated }) {
+  const { isAuthenticated } = useAuthStore();
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleFollow = async () => {
+    setError("");
+
+    if (!isAuthenticated) {
+      setError("Please login to follow creators.");
+      return;
+    }
+
+    if (!creator.id) {
+      setError("Creator account is not available.");
+      return;
+    }
+
+    setIsUpdating(true);
+
+    try {
+      const response = await api.post(`/auth/users/${creator.id}/follow`);
+      const result = response.data;
+
+      if (!result.success) {
+        throw new Error(result.message || "Follow failed");
+      }
+
+      onFollowUpdated(creator.id, result.data);
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || requestError.message);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
   return (
     <article
       className="creator-card reveal"
@@ -1017,15 +1075,25 @@ function CreatorCard({ creator, index }) {
       </div>
 
       <div className="mt-8 flex items-end justify-between border-t border-[#dfe3d9] pt-6">
-        <div>
-          <p className="text-sm uppercase tracking-[0.14em] text-slate-500">Posts</p>
-          <p className="mt-2 text-2xl font-semibold">{creator.postsCount || 0} posts</p>
+        <div className="flex gap-6">
+          <div>
+            <p className="text-sm uppercase tracking-[0.14em] text-slate-500">Posts</p>
+            <p className="mt-2 text-2xl font-semibold">{creator.postsCount || 0}</p>
+          </div>
+
+          <div>
+            <p className="text-sm uppercase tracking-[0.14em] text-slate-500">Followers</p>
+            <p className="mt-2 text-2xl font-semibold">{creator.followersCount || 0}</p>
+          </div>
         </div>
 
-        <button className="follow-button" type="button">
-          <FiUserPlus /> Follow
+        <button className="follow-button" disabled={isUpdating} onClick={handleFollow} type="button">
+          {creator.isFollowing ? <FiUserCheck /> : <FiUserPlus />}
+          {isUpdating ? "..." : creator.isFollowing ? "Following" : "Follow"}
         </button>
       </div>
+
+      {error && <p className="comment-error mt-4">{error}</p>}
     </article>
   );
 }

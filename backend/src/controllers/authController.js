@@ -235,6 +235,37 @@ const getMe =
 const getCreators =
   async (req, res) => {
     try {
+      let currentUserId =
+        null;
+
+      const authHeader =
+        req.headers
+          ?.authorization;
+
+      if (
+        authHeader &&
+        authHeader.startsWith(
+          "Bearer "
+        )
+      ) {
+        try {
+          const decoded =
+            jwt.verify(
+              authHeader.split(
+                " "
+              )[1],
+              process.env
+                .JWT_SECRET
+            );
+
+          currentUserId =
+            decoded.userId;
+        } catch {
+          currentUserId =
+            null;
+        }
+      }
+
       const limit =
         Math.min(
           Math.max(
@@ -259,7 +290,7 @@ const getCreators =
           ],
         })
           .select(
-            "username avatar bio role createdAt"
+            "username avatar bio role followers createdAt"
           )
           .sort({
             createdAt: -1,
@@ -301,6 +332,20 @@ const getCreators =
               role:
                 user.role,
               postsCount,
+              followersCount:
+                user.followers
+                  ?.length || 0,
+              isFollowing:
+                currentUserId
+                  ? user.followers
+                      ?.some(
+                        (followerId) =>
+                          followerId
+                            .toString() ===
+                          currentUserId
+                            .toString()
+                      ) || false
+                  : false,
             };
           })
         );
@@ -318,9 +363,123 @@ const getCreators =
     }
   };
 
+const toggleFollowUser =
+  async (req, res) => {
+    try {
+      const targetUserId =
+        req.params.id;
+
+      const currentUserId =
+        req.user.userId;
+
+      if (
+        targetUserId.toString() ===
+        currentUserId.toString()
+      ) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message:
+              "You cannot follow yourself",
+          });
+      }
+
+      const targetUser =
+        await User.findById(
+          targetUserId
+        );
+
+      const currentUser =
+        await User.findById(
+          currentUserId
+        );
+
+      if (
+        !targetUser ||
+        !currentUser
+      ) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+            message:
+              "User not found",
+          });
+      }
+
+      const hasFollowed =
+        targetUser.followers
+          ?.some(
+            (followerId) =>
+              followerId
+                .toString() ===
+              currentUserId
+                .toString()
+          );
+
+      if (hasFollowed) {
+        targetUser.followers =
+          targetUser.followers
+            .filter(
+              (followerId) =>
+                followerId
+                  .toString() !==
+                currentUserId
+                  .toString()
+            );
+
+        currentUser.following =
+          currentUser.following
+            .filter(
+              (followingId) =>
+                followingId
+                  .toString() !==
+                targetUserId
+                  .toString()
+            );
+      } else {
+        targetUser.followers =
+          [
+            ...(targetUser.followers || []),
+            currentUserId,
+          ];
+
+        currentUser.following =
+          [
+            ...(currentUser.following || []),
+            targetUserId,
+          ];
+      }
+
+      await Promise.all([
+        targetUser.save(),
+        currentUser.save(),
+      ]);
+
+      res.json({
+        success: true,
+        data: {
+          followed:
+            !hasFollowed,
+          followersCount:
+            targetUser.followers
+              .length,
+        },
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message:
+          error.message,
+      });
+    }
+  };
+
 module.exports = {
   register,
   login,
   getMe,
   getCreators,
+  toggleFollowUser,
 };

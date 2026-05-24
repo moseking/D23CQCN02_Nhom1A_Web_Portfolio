@@ -87,7 +87,11 @@ const postSchema = new mongoose.Schema(
       enum: ["draft", "published"],
       default: "published",
     },
-  },
+    visible: {
+      type: Boolean,
+      default: true,
+    }, 
+      },
   { timestamps: true }
 );
 

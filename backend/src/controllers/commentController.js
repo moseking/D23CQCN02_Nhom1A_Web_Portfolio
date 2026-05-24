@@ -36,7 +36,7 @@ const createComment = async (req, res, next) => {
 
     const comment = await Comment.create({
       post: postId,
-      authorName: req.body.authorName,
+      authorName: req.user.username,
       content: req.body.content,
     });
 

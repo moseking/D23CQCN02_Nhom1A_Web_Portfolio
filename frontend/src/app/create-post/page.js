@@ -2,14 +2,17 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FiAlertCircle, FiArrowLeft, FiImage, FiLink, FiSend, FiStar, FiUpload } from "react-icons/fi";
+import { api } from "../../lib/axios";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 const FALLBACK_AUTHOR = "nhuquynh";
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 const DEFAULT_PREVIEW =
   "https://images.unsplash.com/photo-1541701494587-cb58502866ab?auto=format&fit=crop&w=1200&q=80";
+
+
 
 const initialForm = {
   title: "",
@@ -92,14 +95,18 @@ function getUsableMediaUrl(value) {
 }
 
 export default function CreatePostPage() {
-  const [form, setForm] = useState(() => ({
-    ...initialForm,
-    authorName: getCurrentUsername(),
-  }));
+  const [form, setForm] = useState(initialForm);
   const [imageMode, setImageMode] = useState("url");
   const [error, setError] = useState("");
   const [previewError, setPreviewError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    setForm((current) => ({
+      ...current,
+      authorName: getCurrentUsername(),
+    }));
+  }, []);
 
   const urlMedia = useMemo(() => getUsableMediaUrl(form.imageUrl), [form.imageUrl]);
 
@@ -184,24 +191,29 @@ export default function CreatePostPage() {
       : [];
 
     try {
-      const response = await fetch(`${API_URL}/api/posts`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          title: form.title.trim(),
-          content: form.content.trim(),
-          authorName: form.authorName.trim() || FALLBACK_AUTHOR,
-          tags,
-          media,
-          status: "published",
-        }),
-      });
+      const response =
+        await api.post(
+          "/posts",
+          {
+            title:
+              form.title.trim(),
 
-      const result = await response.json();
+            content:
+              form.content.trim(),
 
-      if (!response.ok || !result.success) {
+            tags,
+
+            media,
+
+            status:
+              "published",
+          }
+        );
+
+      const result =
+        response.data;
+
+      if (!result.success) {
         throw new Error(result.message || "Create post failed");
       }
 

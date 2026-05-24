@@ -79,10 +79,43 @@ const getPostById = async (req, res, next) => {
   }
 };
 
-const createPost = async (req, res, next) => {
+/* const createPost = async (req, res, next) => {
   try {
     const post = await Post.create(req.body);
     res.status(201).json({ success: true, data: post });
+  } catch (error) {
+    next(error);
+  }
+}; */
+const createPost = async (req, res, next) => {
+  try {
+    const {
+      title,
+      content,
+      media,
+      tags,
+      status,
+    } = req.body;
+
+    const post =
+      await Post.create({
+        title,
+        content,
+        media,
+        tags,
+        status,
+
+        author:
+          req.user.userId,
+
+        authorName:
+          req.user.username,
+      });
+
+    res.status(201).json({
+      success: true,
+      data: post,
+    });
   } catch (error) {
     next(error);
   }
@@ -94,16 +127,37 @@ const updatePost = async (req, res, next) => {
       return res.status(400).json({ success: false, message: "Invalid post id" });
     }
 
-    const post = await Post.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true,
-    });
+    const post = await Post.findById(req.params.id);
 
     if (!post) {
       return res.status(404).json({ success: false, message: "Post not found" });
     }
 
-    res.json({ success: true, data: post });
+    const isOwner =
+      post.author?.toString() === req.user.userId.toString() ||
+      post.authorName.trim().toLowerCase() === req.user.username.trim().toLowerCase();
+
+    if (!isOwner) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only update posts created by your account",
+      });
+    }
+
+    const updateData = {
+      title: req.body.title,
+      content: req.body.content,
+      media: req.body.media,
+      tags: req.body.tags,
+      status: req.body.status,
+    };
+
+    const updatedPost = await Post.findByIdAndUpdate(req.params.id, updateData, {
+      new: true,
+      runValidators: true,
+    });
+
+    res.json({ success: true, data: updatedPost });
   } catch (error) {
     next(error);
   }
@@ -121,9 +175,11 @@ const deletePost = async (req, res, next) => {
       return res.status(404).json({ success: false, message: "Post not found" });
     }
 
-    const userName = String(req.body?.userName || req.query.userName || "").trim().toLowerCase();
+    const isOwner =
+      post.author?.toString() === req.user.userId.toString() ||
+      post.authorName.trim().toLowerCase() === req.user.username.trim().toLowerCase();
 
-    if (userName && post.authorName.trim().toLowerCase() !== userName) {
+    if (!isOwner) {
       return res.status(403).json({
         success: false,
         message: "You can only delete posts created by your account",
@@ -144,7 +200,7 @@ const toggleLikePost = async (req, res, next) => {
       return res.status(400).json({ success: false, message: "Invalid post id" });
     }
 
-    const userName = String(req.body.userName || req.body.authorName || "nhuquynh")
+    const userName = String(req.user.username)
       .trim()
       .toLowerCase();
 
@@ -184,7 +240,7 @@ const toggleSavePost = async (req, res, next) => {
       return res.status(400).json({ success: false, message: "Invalid post id" });
     }
 
-    const userName = String(req.body.userName || req.body.authorName || "nhuquynh")
+    const userName = String(req.user.username)
       .trim()
       .toLowerCase();
 

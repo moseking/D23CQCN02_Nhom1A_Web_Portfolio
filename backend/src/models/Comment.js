@@ -22,6 +22,10 @@ const commentSchema = new mongoose.Schema(
       minlength: [1, "Comment cannot be empty"],
       maxlength: [1000, "Comment cannot exceed 1000 characters"],
     },
+    visible: {
+      type: Boolean,
+      default: true,
+    },
   },
   { timestamps: true }
 );

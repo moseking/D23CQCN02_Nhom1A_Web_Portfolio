@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const Comment = require("../models/Comment");
 const Post = require("../models/Post");
+const createNotification = require("../utils/createNotification");
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
@@ -9,12 +10,21 @@ const getCommentsByPost = async (req, res, next) => {
     const { postId } = req.params;
 
     if (!isValidObjectId(postId)) {
-      return res.status(400).json({ success: false, message: "Invalid post id" });
+      return res.status(400).json({
+        success: false,
+        message: "Invalid post id",
+      });
     }
 
-    const comments = await Comment.find({ post: postId }).sort({ createdAt: -1 }).lean();
+    const comments = await Comment.find({ post: postId })
+      .populate("author", "username avatar")
+      .sort({ createdAt: -1 })
+      .lean();
 
-    res.json({ success: true, data: comments });
+    res.json({
+      success: true,
+      data: comments,
+    });
   } catch (error) {
     next(error);
   }
@@ -25,22 +35,43 @@ const createComment = async (req, res, next) => {
     const { postId } = req.params;
 
     if (!isValidObjectId(postId)) {
-      return res.status(400).json({ success: false, message: "Invalid post id" });
+      return res.status(400).json({
+        success: false,
+        message: "Invalid post id",
+      });
     }
 
-    const postExists = await Post.exists({ _id: postId });
+    const post = await Post.findById(postId);
 
-    if (!postExists) {
-      return res.status(404).json({ success: false, message: "Post not found" });
+    if (!post) {
+      return res.status(404).json({
+        success: false,
+        message: "Post not found",
+      });
     }
+
+    const userId = req.user?.userId;
 
     const comment = await Comment.create({
       post: postId,
-      authorName: req.body.authorName,
+      authorName: req.user.username,
       content: req.body.content,
     });
 
-    res.status(201).json({ success: true, data: comment });
+    if (userId && post.author) {
+      await createNotification(req, {
+        sender: userId,
+        receiver: post.author,
+        post: post._id,
+        type: "comment",
+        message: "đã bình luận bài viết của bạn",
+      });
+    }
+
+    res.status(201).json({
+      success: true,
+      data: comment,
+    });
   } catch (error) {
     next(error);
   }

@@ -296,11 +296,11 @@ main
 
 ## 👥 Thành viên nhóm
 
-| MSSV | Họ tên | Vai trò               |
-| ---- | ------ | --------------------- |
-|      |        | Authentication & User |
-|      |        | Post & Feed           |
-|      |        | Deploy & Advanced     |
+| MSSV       | Họ tên              | Vai trò               |
+| ---------- | ------------------- | --------------------- |
+| N23DCCN112 | Nguyễn Thị Yến Nhi  | Authentication & User |
+| N23DCCN118 | Hứa Như Quỳnh       | Post & Feed           |
+| N23DCCN096 | Lương Thị Như Huỳnh | Deploy & Advanced     |
 
 ---
 

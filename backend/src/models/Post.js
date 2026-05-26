@@ -74,12 +74,24 @@ const postSchema = new mongoose.Schema(
           ? [...new Set(users.map((user) => user.trim().toLowerCase()).filter(Boolean))]
           : [],
     },
+    savedBy: {
+      type: [String],
+      default: [],
+      set: (users) =>
+        Array.isArray(users)
+          ? [...new Set(users.map((user) => user.trim().toLowerCase()).filter(Boolean))]
+          : [],
+    },
     status: {
       type: String,
       enum: ["draft", "published"],
       default: "published",
     },
-  },
+    visible: {
+      type: Boolean,
+      default: true,
+    }, 
+      },
   { timestamps: true }
 );
 

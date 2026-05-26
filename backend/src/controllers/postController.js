@@ -1,5 +1,7 @@
 const mongoose = require("mongoose");
 const Post = require("../models/Post");
+const User = require("../models/User");
+const createNotification = require("../utils/createNotification");
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
@@ -39,6 +41,7 @@ const getPosts = async (req, res, next) => {
 
     const [posts, total] = await Promise.all([
       Post.find(filter)
+        .populate("author", "username avatar bio")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -64,13 +67,19 @@ const getPosts = async (req, res, next) => {
 const getPostById = async (req, res, next) => {
   try {
     if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ success: false, message: "Invalid post id" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid post id" });
     }
 
-    const post = await Post.findById(req.params.id).lean();
+    const post = await Post.findById(req.params.id)
+      .populate("author", "username avatar bio")
+      .lean();
 
     if (!post) {
-      return res.status(404).json({ success: false, message: "Post not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Post not found" });
     }
 
     res.json({ success: true, data: post });
@@ -79,10 +88,72 @@ const getPostById = async (req, res, next) => {
   }
 };
 
+/* const createPost = async (req, res, next) => {
+  try {
+    const userId = req.user?._id || req.user?.id;
+
+    const post = await Post.create({
+      ...req.body,
+      author: userId || req.body.author || null,
+      authorName: req.body.authorName || req.user?.username || "Anonymous",
+    });
+
+    res.status(201).json({
+      success: true,
+      data: post,
+    });
+  } catch (error) {
+    next(error);
+  }
+}; */
 const createPost = async (req, res, next) => {
   try {
-    const post = await Post.create(req.body);
-    res.status(201).json({ success: true, data: post });
+    const {
+      title,
+      content,
+      media,
+      tags,
+      status,
+    } = req.body;
+
+    const post =
+      await Post.create({
+        title,
+        content,
+        media,
+        tags,
+        status,
+
+        author:
+          req.user.userId,
+
+        authorName:
+          req.user.username,
+      });
+
+    const author =
+      await User.findById(
+        req.user.userId
+      ).select("followers");
+
+    if (author?.followers?.length) {
+      await Promise.all(
+        author.followers.map((receiver) =>
+          createNotification(req, {
+            sender: req.user.userId,
+            receiver,
+            post: post._id,
+            type: "new_post",
+            message: "đã đăng một bài viết mới",
+          })
+        )
+      );
+    }
+
+    res.status(201).json({
+      success: true,
+      data: post,
+    });
   } catch (error) {
     next(error);
   }
@@ -91,19 +162,44 @@ const createPost = async (req, res, next) => {
 const updatePost = async (req, res, next) => {
   try {
     if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ success: false, message: "Invalid post id" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid post id" });
     }
 
-    const post = await Post.findByIdAndUpdate(req.params.id, req.body, {
+    const post = await Post.findById(req.params.id);
+
+    if (!post) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Post not found" });
+    }
+
+    const isOwner =
+      post.author?.toString() === req.user.userId.toString() ||
+      post.authorName.trim().toLowerCase() === req.user.username.trim().toLowerCase();
+
+    if (!isOwner) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only update posts created by your account",
+      });
+    }
+
+    const updateData = {
+      title: req.body.title,
+      content: req.body.content,
+      media: req.body.media,
+      tags: req.body.tags,
+      status: req.body.status,
+    };
+
+    const updatedPost = await Post.findByIdAndUpdate(req.params.id, updateData, {
       new: true,
       runValidators: true,
     });
 
-    if (!post) {
-      return res.status(404).json({ success: false, message: "Post not found" });
-    }
-
-    res.json({ success: true, data: post });
+    res.json({ success: true, data: updatedPost });
   } catch (error) {
     next(error);
   }
@@ -112,14 +208,31 @@ const updatePost = async (req, res, next) => {
 const deletePost = async (req, res, next) => {
   try {
     if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ success: false, message: "Invalid post id" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid post id" });
     }
 
-    const post = await Post.findByIdAndDelete(req.params.id);
+    const post = await Post.findById(req.params.id);
 
     if (!post) {
-      return res.status(404).json({ success: false, message: "Post not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Post not found" });
     }
+
+    const isOwner =
+      post.author?.toString() === req.user.userId.toString() ||
+      post.authorName.trim().toLowerCase() === req.user.username.trim().toLowerCase();
+
+    if (!isOwner) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only delete posts created by your account",
+      });
+    }
+
+    await post.deleteOne();
 
     res.json({ success: true, message: "Post deleted successfully" });
   } catch (error) {
@@ -130,27 +243,54 @@ const deletePost = async (req, res, next) => {
 const toggleLikePost = async (req, res, next) => {
   try {
     if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ success: false, message: "Invalid post id" });
+      return res.status(400).json({
+        success: false,
+        message: "Invalid post id",
+      });
     }
 
-    const userName = String(req.body.userName || req.body.authorName || "nhuquynh")
+    const userId = req.user?.userId;
+    const userName = String(req.user.username)
       .trim()
       .toLowerCase();
 
-    if (!userName) {
-      return res.status(400).json({ success: false, message: "User name is required" });
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "You must login to like this post",
+      });
     }
 
     const post = await Post.findById(req.params.id);
 
     if (!post) {
-      return res.status(404).json({ success: false, message: "Post not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Post not found",
+      });
     }
 
-    const hasLiked = post.likedBy.includes(userName);
-    post.likedBy = hasLiked
-      ? post.likedBy.filter((item) => item !== userName)
-      : [...post.likedBy, userName];
+    const hasLiked = post.likes.some(
+      (id) => id.toString() === userId.toString()
+    );
+
+    if (hasLiked) {
+      post.likes = post.likes.filter(
+        (id) => id.toString() !== userId.toString()
+      );
+    } else {
+      post.likes.push(userId);
+
+      if (post.author) {
+        await createNotification(req, {
+          sender: userId,
+          receiver: post.author,
+          post: post._id,
+          type: "like",
+          message: "đã thích bài viết của bạn",
+        });
+      }
+    }
 
     await post.save();
 
@@ -158,8 +298,64 @@ const toggleLikePost = async (req, res, next) => {
       success: true,
       data: {
         liked: !hasLiked,
-        likesCount: post.likedBy.length,
-        likedBy: post.likedBy,
+        likesCount: post.likes.length,
+        likes: post.likes,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const toggleSavePost = async (req, res, next) => {
+  try {
+    if (!isValidObjectId(req.params.id)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid post id" });
+    }
+
+    const userName = String(req.user.username)
+      .trim()
+      .toLowerCase();
+
+    if (!userName) {
+      return res
+        .status(400)
+        .json({ success: false, message: "User name is required" });
+    }
+
+    const post = await Post.findById(req.params.id);
+
+    if (!post) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Post not found" });
+    }
+
+    const hasSaved = post.savedBy.includes(userName);
+    post.savedBy = hasSaved
+      ? post.savedBy.filter((item) => item !== userName)
+      : [...post.savedBy, userName];
+
+    if (!hasSaved && post.author) {
+      await createNotification(req, {
+        sender: req.user.userId,
+        receiver: post.author,
+        post: post._id,
+        type: "save",
+        message: "đã lưu bài viết của bạn",
+      });
+    }
+
+    await post.save();
+
+    res.json({
+      success: true,
+      data: {
+        saved: !hasSaved,
+        savesCount: post.savedBy.length,
+        savedBy: post.savedBy,
       },
     });
   } catch (error) {
@@ -174,4 +370,5 @@ module.exports = {
   updatePost,
   deletePost,
   toggleLikePost,
+  toggleSavePost,
 };

@@ -2,20 +2,36 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useMemo, useState } from "react";
+import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from "react";
 import { FiAlertCircle, FiArrowLeft, FiImage, FiLink, FiSend, FiStar, FiUpload } from "react-icons/fi";
+import { api } from "../../lib/axios";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 const FALLBACK_AUTHOR = "nhuquynh";
+const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 const DEFAULT_PREVIEW =
   "https://images.unsplash.com/photo-1541701494587-cb58502866ab?auto=format&fit=crop&w=1200&q=80";
 
-const initialForm = {
+
+
+type MediaType = "image" | "video";
+
+type PostForm = {
+  title: string;
+  content: string;
+  authorName: string;
+  imageUrl: string;
+  uploadedMedia: string;
+  uploadedMediaType: MediaType;
+  tags: string;
+};
+
+const initialForm: PostForm = {
   title: "",
   content: "",
   authorName: FALLBACK_AUTHOR,
   imageUrl: "",
-  uploadedImage: "",
+  uploadedMedia: "",
+  uploadedMediaType: "image",
   tags: "UI/UX, Portfolio",
 };
 
@@ -39,22 +55,50 @@ function getCurrentUsername() {
   return localStorage.getItem("username") || FALLBACK_AUTHOR;
 }
 
-function isLikelyImageUrl(value) {
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Request failed";
+}
+
+function isLikelyImageUrl(value: string) {
   return /\.(avif|gif|jpe?g|png|svg|webp)(\?.*)?$/i.test(value) || value.startsWith("data:image/");
 }
 
-function getUsableImageUrl(value) {
+function isLikelyVideoUrl(value: string) {
+  return /\.(mp4|mov|ogg|webm)(\?.*)?$/i.test(value) || value.startsWith("data:video/");
+}
+
+function getMediaType(value: string): MediaType {
+  return isLikelyVideoUrl(value) ? "video" : "image";
+}
+
+function formatBytes(bytes: number) {
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+}
+
+function getFriendlyMediaError(message: string) {
+  if (
+    message.includes("request entity too large") ||
+    message.includes("offset") ||
+    message.includes("BSON")
+  ) {
+    return "File media quá lớn để lưu trực tiếp vào MongoDB. Hãy chọn video dưới 8MB hoặc dùng link video trực tiếp.";
+  }
+
+  return message;
+}
+
+function getUsableMediaUrl(value: string) {
   const trimmedValue = value.trim();
   if (!trimmedValue) return "";
-  if (isLikelyImageUrl(trimmedValue)) return trimmedValue;
+  if (isLikelyImageUrl(trimmedValue) || isLikelyVideoUrl(trimmedValue)) return trimmedValue;
 
   try {
     const url = new URL(trimmedValue);
-    const imageParamNames = ["mediaurl", "imgurl", "imageurl", "url", "rurl", "u"];
+    const mediaParamNames = ["mediaurl", "imgurl", "imageurl", "videourl", "url", "rurl", "u"];
 
-    for (const name of imageParamNames) {
+    for (const name of mediaParamNames) {
       const candidate = url.searchParams.get(name);
-      if (candidate && isLikelyImageUrl(candidate)) {
+      if (candidate && (isLikelyImageUrl(candidate) || isLikelyVideoUrl(candidate))) {
         return candidate;
       }
     }
@@ -66,95 +110,131 @@ function getUsableImageUrl(value) {
 }
 
 export default function CreatePostPage() {
-  const [form, setForm] = useState(() => ({
-    ...initialForm,
-    authorName: getCurrentUsername(),
-  }));
+  const [form, setForm] = useState(initialForm);
   const [imageMode, setImageMode] = useState("url");
   const [error, setError] = useState("");
   const [previewError, setPreviewError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const urlImage = useMemo(() => getUsableImageUrl(form.imageUrl), [form.imageUrl]);
+  useEffect(() => {
+    setForm((current) => ({
+      ...current,
+      authorName: getCurrentUsername(),
+    }));
+  }, []);
 
-  const previewImage = useMemo(() => {
-    if (imageMode === "upload" && form.uploadedImage) return form.uploadedImage;
-    if (urlImage) return urlImage;
+  const urlMedia = useMemo(() => getUsableMediaUrl(form.imageUrl), [form.imageUrl]);
+
+  const previewMedia = useMemo(() => {
+    if (imageMode === "upload" && form.uploadedMedia) return form.uploadedMedia;
+    if (urlMedia) return urlMedia;
     return DEFAULT_PREVIEW;
-  }, [form.uploadedImage, imageMode, urlImage]);
+  }, [form.uploadedMedia, imageMode, urlMedia]);
 
-  const hasUnsupportedImageUrl = imageMode === "url" && form.imageUrl.trim() && !urlImage;
+  const previewMediaType =
+    imageMode === "upload" ? form.uploadedMediaType : getMediaType(previewMedia);
+  const hasUnsupportedMediaUrl = imageMode === "url" && form.imageUrl.trim() && !urlMedia;
 
-  const updateField = (field, value) => {
+  const updateField = (field: keyof PostForm, value: string) => {
     if (field === "imageUrl") {
       setPreviewError(false);
     }
     setForm((current) => ({ ...current, [field]: value }));
   };
 
-  const handleImageUpload = (event) => {
+  const handleMediaUpload = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith("image/")) {
-      setError("Please choose an image file.");
+    if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
+      setError("Please choose an image or video file.");
+      return;
+    }
+
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setError(
+        `File ${formatBytes(file.size)} quá lớn. Upload từ máy chỉ hỗ trợ file dưới ${formatBytes(
+          MAX_UPLOAD_BYTES
+        )}; video lớn hãy dùng direct URL hoặc Cloudinary.`
+      );
+      event.target.value = "";
       return;
     }
 
     const reader = new FileReader();
     reader.onload = () => {
       setError("");
-      updateField("uploadedImage", reader.result);
+      setForm((current) => ({
+        ...current,
+        uploadedMedia: typeof reader.result === "string" ? reader.result : "",
+        uploadedMediaType: file.type.startsWith("video/") ? "video" : "image",
+      }));
       setImageMode("upload");
     };
     reader.readAsDataURL(file);
   };
 
-  const handleSubmit = async (event) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
     setIsSubmitting(true);
 
-    const imageValue = imageMode === "upload" ? form.uploadedImage : urlImage;
+    const mediaValue = imageMode === "upload" ? form.uploadedMedia : urlMedia;
+    const mediaType = imageMode === "upload" ? form.uploadedMediaType : getMediaType(mediaValue);
+
+    if (mediaValue.startsWith("data:") && mediaValue.length > MAX_UPLOAD_BYTES * 1.4) {
+      setError(
+        `File media quá lớn. Upload từ máy chỉ hỗ trợ file dưới ${formatBytes(
+          MAX_UPLOAD_BYTES
+        )}; video lớn hãy dùng direct URL hoặc Cloudinary.`
+      );
+      setIsSubmitting(false);
+      return;
+    }
     const tags = form.tags
       .split(",")
       .map((tag) => tag.trim())
       .filter(Boolean);
 
-    const media = imageValue
+    const media = mediaValue
       ? [
           {
-            url: imageValue,
-            type: "image",
+            url: mediaValue,
+            type: mediaType,
           },
         ]
       : [];
 
     try {
-      const response = await fetch(`${API_URL}/api/posts`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          title: form.title.trim(),
-          content: form.content.trim(),
-          authorName: form.authorName.trim() || FALLBACK_AUTHOR,
-          tags,
-          media,
-          status: "published",
-        }),
-      });
+      const response =
+        await api.post(
+          "/posts",
+          {
+            title:
+              form.title.trim(),
 
-      const result = await response.json();
+            content:
+              form.content.trim(),
 
-      if (!response.ok || !result.success) {
+            tags,
+
+            media,
+
+            status:
+              "published",
+          }
+        );
+
+      const result =
+        response.data;
+
+      if (!result.success) {
         throw new Error(result.message || "Create post failed");
       }
 
       window.location.href = "/feed";
     } catch (requestError) {
-      setError(requestError.message);
+      setError(getFriendlyMediaError(getErrorMessage(requestError)));
       setIsSubmitting(false);
     }
   };
@@ -250,29 +330,28 @@ export default function CreatePostPage() {
                     <FiImage />
                     <input
                       onChange={(event) => updateField("imageUrl", event.target.value)}
-                      placeholder="https://example.com/work.jpg"
+                      placeholder="https://example.com/work.jpg or video.mp4"
                       type="url"
                       value={form.imageUrl}
                     />
                   </div>
-                  {hasUnsupportedImageUrl && (
+                  {hasUnsupportedMediaUrl && (
                     <small className="image-url-help">
-                      Link này là trang web/search page. Hãy bấm chuột phải vào ảnh rồi chọn
-                      “Copy image address”, hoặc mở ảnh và copy link có đuôi .jpg, .png, .webp.
+                      Paste a direct image/video URL. Examples: .jpg, .png, .webp, .mp4, .webm.
                     </small>
                   )}
-                  {urlImage && urlImage !== form.imageUrl.trim() && (
+                  {urlMedia && urlMedia !== form.imageUrl.trim() && (
                     <small className="image-url-help success">
-                      Đã tự lấy link ảnh thật từ URL bạn dán.
+                      Found the direct media URL from your pasted link.
                     </small>
                   )}
                 </label>
               ) : (
                 <label className="upload-drop">
                   <FiUpload />
-                  <strong>Choose image from your computer</strong>
-                  <small>PNG, JPG, WebP. The preview is saved with the post.</small>
-                  <input accept="image/*" onChange={handleImageUpload} type="file" />
+                  <strong>Choose image or video from your computer</strong>
+                  <small>PNG, JPG, WebP, MP4, WebM. Upload file dưới 8MB; video lớn dùng URL.</small>
+                  <input accept="image/*,video/*" onChange={handleMediaUpload} type="file" />
                 </label>
               )}
             </div>
@@ -296,17 +375,19 @@ export default function CreatePostPage() {
 
           <article className="post-preview">
             <div className="preview-image">
-              {hasUnsupportedImageUrl || previewError ? (
+              {hasUnsupportedMediaUrl || previewError ? (
                 <div className="preview-placeholder">
                   <FiAlertCircle />
-                  <strong>Chưa đọc được ảnh từ link này</strong>
-                  <span>Dán direct image URL hoặc dùng Upload từ máy.</span>
+                  <strong>Cannot preview this media link</strong>
+                  <span>Paste a direct image/video URL or upload from your computer.</span>
                 </div>
+              ) : previewMediaType === "video" ? (
+                <video controls src={previewMedia} />
               ) : (
                 <img
                   alt="Post preview"
                   onError={() => setPreviewError(true)}
-                  src={previewImage}
+                  src={previewMedia}
                 />
               )}
             </div>

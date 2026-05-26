@@ -66,6 +66,31 @@ const userSchema =
           ref: "User",
         },
       ],
+
+      isVerified: {
+        type: Boolean,
+        default: false,
+      },
+
+      verifyOTP: {
+        type: String,
+        default: "",
+      },
+
+      verifyOTPExpire: {
+        type: Date,
+        default: null,
+      },
+
+      resetPasswordOtp: {
+        type: String,
+        default: "",
+      },
+
+      resetPasswordOtpExpires: {
+        type: Date,
+        default: null,
+      },
     },
     {
       timestamps: true,

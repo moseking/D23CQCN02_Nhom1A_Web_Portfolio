@@ -33,10 +33,6 @@ export default function PostsTab() {
       action: () => void;
     } | null>(null);
 
-  useEffect(() => {
-    fetchPosts();
-  }, []);
-
   const fetchPosts = async () => {
     try {
       setLoading(true);
@@ -51,6 +47,10 @@ export default function PostsTab() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchPosts();
+  }, []);
 
   const toggleVisibility =
     async (id: string) => {

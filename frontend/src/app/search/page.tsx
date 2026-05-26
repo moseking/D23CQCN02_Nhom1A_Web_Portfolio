@@ -1,16 +1,29 @@
 "use client";
 
-import { useState } from "react";
+import { type FormEvent, useState } from "react";
 import { api } from "@/lib/axios";
+
+type SearchUser = {
+  _id: string;
+  username: string;
+  bio?: string;
+};
+
+type SearchPost = {
+  _id: string;
+  title: string;
+  content?: string;
+  tags?: string[];
+};
 
 export default function SearchPage() {
   const [query, setQuery] = useState("");
   const [type, setType] = useState("");
-  const [users, setUsers] = useState([]);
-  const [posts, setPosts] = useState([]);
+  const [users, setUsers] = useState<SearchUser[]>([]);
+  const [posts, setPosts] = useState<SearchPost[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const handleSearch = async (e) => {
+  const handleSearch = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     setLoading(true);
@@ -72,7 +85,12 @@ export default function SearchPage() {
             ) : (
               users.map((user) => (
                 <div key={user._id} className="mb-2 rounded-lg border p-3">
-                  <p className="font-semibold">{user.username}</p>
+                  <a
+                    className="font-semibold transition hover:text-[#6f7e5b]"
+                    href={`/users/${user._id}`}
+                  >
+                    {user.username}
+                  </a>
                   {user.bio && (
                     <p className="text-sm text-gray-500">{user.bio}</p>
                   )}

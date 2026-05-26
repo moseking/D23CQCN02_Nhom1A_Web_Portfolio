@@ -2,12 +2,11 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useMemo, useState } from "react";
+import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   FiAlertCircle,
   FiArrowLeft,
-  FiEdit3,
   FiImage,
   FiLink,
   FiSave,
@@ -22,23 +21,54 @@ const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 const DEFAULT_PREVIEW =
   "https://images.unsplash.com/photo-1541701494587-cb58502866ab?auto=format&fit=crop&w=1200&q=80";
 
-function isLikelyImageUrl(value) {
+type MediaType = "image" | "video";
+
+type PostForm = {
+  title: string;
+  content: string;
+  authorName: string;
+  imageUrl: string;
+  uploadedMedia: string;
+  uploadedMediaType: MediaType;
+  tags: string;
+};
+
+type ApiPost = {
+  title?: string;
+  content?: string;
+  authorName?: string;
+  media?: Array<{
+    url?: string;
+    type?: MediaType;
+  }>;
+  tags?: string[];
+};
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Request failed";
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+function isLikelyImageUrl(value: string) {
   return /\.(avif|gif|jpe?g|png|svg|webp)(\?.*)?$/i.test(value) || value.startsWith("data:image/");
 }
 
-function isLikelyVideoUrl(value) {
+function isLikelyVideoUrl(value: string) {
   return /\.(mp4|mov|ogg|webm)(\?.*)?$/i.test(value) || value.startsWith("data:video/");
 }
 
-function getMediaType(value) {
+function getMediaType(value: string): MediaType {
   return isLikelyVideoUrl(value) ? "video" : "image";
 }
 
-function formatBytes(bytes) {
+function formatBytes(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
 }
 
-function getFriendlyMediaError(message) {
+function getFriendlyMediaError(message: string) {
   if (
     message.includes("request entity too large") ||
     message.includes("offset") ||
@@ -50,7 +80,7 @@ function getFriendlyMediaError(message) {
   return message;
 }
 
-function getUsableMediaUrl(value) {
+function getUsableMediaUrl(value: string) {
   const trimmedValue = value.trim();
   if (!trimmedValue) return "";
   if (isLikelyImageUrl(trimmedValue) || isLikelyVideoUrl(trimmedValue)) return trimmedValue;
@@ -72,8 +102,8 @@ function getUsableMediaUrl(value) {
 
 export default function EditPostPage() {
   const params = useParams();
-  const postId = params.id;
-  const [form, setForm] = useState({
+  const postId = Array.isArray(params.id) ? params.id[0] : params.id;
+  const [form, setForm] = useState<PostForm>({
     title: "",
     content: "",
     authorName: FALLBACK_AUTHOR,
@@ -102,7 +132,7 @@ export default function EditPostPage() {
           throw new Error(result.message || "Cannot load post");
         }
 
-        const post = result.data;
+        const post = result.data as ApiPost;
         const mediaUrl = post.media?.[0]?.url || "";
         const mediaType = post.media?.[0]?.type || getMediaType(mediaUrl);
 
@@ -118,8 +148,8 @@ export default function EditPostPage() {
         setImageMode(mediaUrl.startsWith("data:") ? "upload" : "url");
         setStatus("ready");
       } catch (requestError) {
-        if (requestError.name !== "AbortError") {
-          setError(requestError.message);
+        if (!isAbortError(requestError)) {
+          setError(getErrorMessage(requestError));
           setStatus("error");
         }
       }
@@ -139,12 +169,12 @@ export default function EditPostPage() {
     imageMode === "upload" ? form.uploadedMediaType : getMediaType(previewMedia);
   const hasUnsupportedMediaUrl = imageMode === "url" && form.imageUrl.trim() && !urlMedia;
 
-  const updateField = (field, value) => {
+  const updateField = (field: keyof PostForm, value: string) => {
     if (field === "imageUrl") setPreviewError(false);
     setForm((current) => ({ ...current, [field]: value }));
   };
 
-  const handleMediaUpload = (event) => {
+  const handleMediaUpload = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -168,7 +198,7 @@ export default function EditPostPage() {
       setError("");
       setForm((current) => ({
         ...current,
-        uploadedMedia: reader.result,
+        uploadedMedia: typeof reader.result === "string" ? reader.result : "",
         uploadedMediaType: file.type.startsWith("video/") ? "video" : "image",
       }));
       setImageMode("upload");
@@ -176,7 +206,7 @@ export default function EditPostPage() {
     reader.readAsDataURL(file);
   };
 
-  const handleSubmit = async (event) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
     setIsSubmitting(true);
@@ -213,13 +243,13 @@ export default function EditPostPage() {
       );
       const result = response.data;
 
-      if (!response.ok || !result.success) {
+      if (!result.success) {
         throw new Error(result.message || "Update post failed");
       }
 
       window.location.href = "/feed";
     } catch (requestError) {
-      setError(getFriendlyMediaError(requestError.message));
+      setError(getFriendlyMediaError(getErrorMessage(requestError)));
       setIsSubmitting(false);
     }
   };

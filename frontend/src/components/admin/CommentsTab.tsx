@@ -50,10 +50,6 @@ export default function CommentsTab() {
       action: () => void;
     } | null>(null);
 
-  useEffect(() => {
-    fetchComments();
-  }, []);
-
   const fetchComments =
     async () => {
       try {
@@ -71,6 +67,10 @@ export default function CommentsTab() {
         setLoading(false);
       }
     };
+
+  useEffect(() => {
+    fetchComments();
+  }, []);
 
   const toggleVisibility =
     async (id: string) => {

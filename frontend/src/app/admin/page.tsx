@@ -44,34 +44,37 @@ export default function AdminPage() {
         totalPosts: 0,
         totalComments: 0,
     });
-    useEffect(() => {
-  fetchStats();
-}, []);
-const fetchStats = async () => {
-  try {
-    setLoading(true);
-
-    const data =
-      await adminService.getDashboardStats();
-
-    setStats({
-      totalUsers:
-        data.totalUsers || 0,
-
-      totalPosts:
-        data.totalPosts || 0,
-
-      totalComments:
-        data.totalComments || 0,
-    });
-  } catch (error) {
-    console.log(error);
-  } finally {
-    setLoading(false);
-  }
-};
 const [loading, setLoading] =
   useState(true);
+
+  const fetchStats = async () => {
+    try {
+      setLoading(true);
+
+      const data =
+        await adminService.getDashboardStats();
+
+      setStats({
+        totalUsers:
+          data.totalUsers || 0,
+
+        totalPosts:
+          data.totalPosts || 0,
+
+        totalComments:
+          data.totalComments || 0,
+      });
+    } catch (error) {
+      console.log(error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchStats();
+  }, []);
+
   const handleLogout = () => {
     logout();
     router.push("/auth?mode=login");

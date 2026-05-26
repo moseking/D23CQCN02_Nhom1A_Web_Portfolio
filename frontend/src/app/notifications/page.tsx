@@ -4,8 +4,21 @@ import { useEffect, useState } from "react";
 import { socket } from "@/lib/socket";
 import { api } from "@/lib/axios";
 
+type NotificationItem = {
+  _id: string;
+  isRead?: boolean;
+  message?: string;
+  type?: string;
+  sender?: {
+    username?: string;
+  };
+  post?: {
+    title?: string;
+  };
+};
+
 export default function NotificationsPage() {
-  const [notifications, setNotifications] = useState([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchNotifications = async () => {
@@ -37,7 +50,7 @@ export default function NotificationsPage() {
   useEffect(() => {
     fetchNotifications();
 
-    const handleNewNotification = (notification) => {
+    const handleNewNotification = (notification: NotificationItem) => {
       setNotifications((prev) => [notification, ...prev]);
     };
 

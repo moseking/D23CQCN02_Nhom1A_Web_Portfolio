@@ -3,7 +3,12 @@
 import { useEffect } from "react";
 import { socket } from "../lib/socket";
 
-export default function SocketProvider({ user }) {
+type SocketUser = {
+  _id?: string;
+  id?: string;
+} | null;
+
+export default function SocketProvider({ user }: { user: SocketUser }) {
   useEffect(() => {
     const userId = user?._id || user?.id;
 

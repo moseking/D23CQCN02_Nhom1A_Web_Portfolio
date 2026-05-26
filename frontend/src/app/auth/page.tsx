@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 
 import {
   useRouter,
@@ -13,7 +13,7 @@ import { Login }
 import { Register }
   from "../../components/auth/Register";
 
-export default function AuthPage() {
+function AuthContent() {
 
   const router = useRouter();
 
@@ -46,5 +46,13 @@ export default function AuthPage() {
         router.push("/feed")
       }
     />
+  );
+}
+
+export default function AuthPage() {
+  return (
+    <Suspense fallback={null}>
+      <AuthContent />
+    </Suspense>
   );
 }

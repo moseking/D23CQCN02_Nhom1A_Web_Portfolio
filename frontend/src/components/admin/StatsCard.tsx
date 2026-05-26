@@ -1,5 +1,7 @@
+import type { LucideIcon } from "lucide-react";
+
 interface StatsCardProps {
-  icon: any;
+  icon: LucideIcon;
   label: string;
   value: number;
   sub: string;

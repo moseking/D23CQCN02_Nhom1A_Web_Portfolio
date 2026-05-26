@@ -10,6 +10,9 @@ const User =
 const Post =
   require("../models/Post");
 
+const createNotification =
+  require("../utils/createNotification");
+
 const escapeRegex = (value) =>
   String(value || "").replace(
     /[.*+?^${}()|[\]\\]/g,
@@ -32,6 +35,85 @@ const generateToken = (
       expiresIn: "7d",
     }
   );
+};
+
+const normalizePortfolioInput = (
+  portfolio = {}
+) => {
+  const allowedLayouts = [
+    "showcase",
+    "grid",
+    "studio",
+  ];
+
+  const allowedThemes = [
+    "",
+    "aurora",
+    "gallery",
+    "noir",
+    "mint",
+  ];
+
+  const nextPortfolio = {};
+
+  if (
+    Object.prototype.hasOwnProperty.call(
+      portfolio,
+      "title"
+    )
+  ) {
+    nextPortfolio.title = String(
+      portfolio.title || ""
+    )
+      .trim()
+      .slice(0, 80);
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(
+      portfolio,
+      "location"
+    )
+  ) {
+    nextPortfolio.location = String(
+      portfolio.location || ""
+    )
+      .trim()
+      .slice(0, 80);
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(
+      portfolio,
+      "website"
+    )
+  ) {
+    nextPortfolio.website = String(
+      portfolio.website || ""
+    )
+      .trim()
+      .slice(0, 180);
+  }
+
+  if (
+    allowedLayouts.includes(
+      portfolio.layout
+    )
+  ) {
+    nextPortfolio.layout =
+      portfolio.layout;
+  }
+
+  if (
+    allowedThemes.includes(
+      portfolio.theme
+    )
+  ) {
+    nextPortfolio.theme =
+      portfolio.theme;
+  }
+
+  return nextPortfolio;
 };
 
 const register =
@@ -363,6 +445,302 @@ const getCreators =
     }
   };
 
+const updateMyProfile =
+  async (req, res) => {
+    try {
+      const user =
+        await User.findById(
+          req.user.userId
+        );
+
+      if (!user) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+            message:
+              "User not found",
+          });
+      }
+
+      const {
+        username,
+        avatar,
+        bio,
+        portfolio,
+      } = req.body;
+
+      if (
+        typeof username ===
+        "string"
+      ) {
+        const cleanUsername =
+          username.trim();
+
+        if (
+          cleanUsername.length < 2 ||
+          cleanUsername.length > 40
+        ) {
+          return res
+            .status(400)
+            .json({
+              success: false,
+              message:
+                "Username must be between 2 and 40 characters",
+            });
+        }
+
+        user.username =
+          cleanUsername;
+      }
+
+      if (
+        typeof avatar === "string"
+      ) {
+        user.avatar =
+          avatar.trim().slice(0, 300);
+      }
+
+      if (typeof bio === "string") {
+        user.bio =
+          bio.trim().slice(0, 280);
+      }
+
+      if (
+        portfolio &&
+        typeof portfolio ===
+          "object"
+      ) {
+        const nextPortfolio =
+          normalizePortfolioInput(
+            portfolio
+          );
+
+        user.portfolio = {
+          ...(user.portfolio?.toObject
+            ? user.portfolio.toObject()
+            : user.portfolio || {}),
+          ...nextPortfolio,
+        };
+      }
+
+      await user.save();
+
+      const updatedUser =
+        await User.findById(
+          user._id
+        ).select(
+          "-password"
+        );
+
+      res.json({
+        success: true,
+        data: updatedUser,
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message:
+          error.message,
+      });
+    }
+  };
+
+const getUserPortfolio =
+  async (req, res) => {
+    try {
+      const targetUserId =
+        req.params.id;
+
+      if (
+        !targetUserId ||
+        !targetUserId.match(
+          /^[0-9a-fA-F]{24}$/
+        )
+      ) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message:
+              "Invalid user id",
+          });
+      }
+
+      let currentUserId =
+        null;
+
+      const authHeader =
+        req.headers
+          ?.authorization;
+
+      if (
+        authHeader &&
+        authHeader.startsWith(
+          "Bearer "
+        )
+      ) {
+        try {
+          const decoded =
+            jwt.verify(
+              authHeader.split(
+                " "
+              )[1],
+              process.env
+                .JWT_SECRET
+            );
+
+          currentUserId =
+            decoded.userId;
+        } catch {
+          currentUserId =
+            null;
+        }
+      }
+
+      const user =
+        await User.findById(
+          targetUserId
+        ).select(
+          "username email avatar bio portfolio role status followers following createdAt"
+        );
+
+      if (!user) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+            message:
+              "User not found",
+          });
+      }
+
+      const postFilter = {
+        visible: {
+          $ne: false,
+        },
+        status: {
+          $ne: "draft",
+        },
+        $or: [
+          {
+            author:
+              user._id,
+          },
+          {
+            authorName: {
+              $regex:
+                `^${escapeRegex(
+                  user.username
+                )}$`,
+              $options:
+                "i",
+            },
+          },
+        ],
+      };
+
+      const posts =
+        await Post.find(
+          postFilter
+        )
+          .sort({
+            createdAt: -1,
+          })
+          .lean();
+
+      const featuredTags =
+        [
+          ...new Set(
+            posts.flatMap(
+              (post) =>
+                post.tags || []
+            )
+          ),
+        ].slice(0, 8);
+
+      const likesCount =
+        posts.reduce(
+          (total, post) =>
+            total +
+            (post.likes?.length ||
+              post.likedBy
+                ?.length ||
+              0),
+          0
+        );
+
+      res.json({
+        success: true,
+        data: {
+          user: {
+            _id:
+              user._id,
+            username:
+              user.username,
+            email:
+              user.email,
+            avatar:
+              user.avatar,
+            bio:
+              user.bio,
+            portfolio:
+              user.portfolio,
+            role:
+              user.role,
+            status:
+              user.status,
+            createdAt:
+              user.createdAt,
+            followersCount:
+              user.followers
+                ?.length || 0,
+            followingCount:
+              user.following
+                ?.length || 0,
+            isFollowing:
+              currentUserId
+                ? user.followers
+                    ?.some(
+                      (followerId) =>
+                        followerId
+                          .toString() ===
+                        currentUserId
+                          .toString()
+                    ) || false
+                : false,
+            isSelf:
+              currentUserId
+                ? user._id
+                    .toString() ===
+                  currentUserId
+                    .toString()
+                : false,
+          },
+          posts,
+          stats: {
+            postsCount:
+              posts.length,
+            likesCount,
+            followersCount:
+              user.followers
+                ?.length || 0,
+            followingCount:
+              user.following
+                ?.length || 0,
+          },
+          featuredTags,
+        },
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message:
+          error.message,
+      });
+    }
+  };
+
 const toggleFollowUser =
   async (req, res) => {
     try {
@@ -452,6 +830,18 @@ const toggleFollowUser =
           ];
       }
 
+      if (!hasFollowed) {
+        await createNotification(req, {
+          sender:
+            currentUserId,
+          receiver:
+            targetUserId,
+          type: "follow",
+          message:
+            "đã theo dõi bạn",
+        });
+      }
+
       await Promise.all([
         targetUser.save(),
         currentUser.save(),
@@ -480,6 +870,8 @@ module.exports = {
   register,
   login,
   getMe,
+  updateMyProfile,
   getCreators,
+  getUserPortfolio,
   toggleFollowUser,
 };

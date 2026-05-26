@@ -50,7 +50,7 @@ const createComment = async (req, res, next) => {
       });
     }
 
-    const userId = req.user?._id || req.user?.id;
+    const userId = req.user?.userId;
 
     const comment = await Comment.create({
       post: postId,

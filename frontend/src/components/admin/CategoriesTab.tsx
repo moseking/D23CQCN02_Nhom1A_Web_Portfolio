@@ -22,10 +22,6 @@ export default function CategoriesTab() {
   const [search, setSearch] =
     useState("");
 
-  useEffect(() => {
-    fetchCategories();
-  }, []);
-
   const fetchCategories = async () => {
     try {
       setLoading(true);
@@ -42,6 +38,10 @@ export default function CategoriesTab() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchCategories();
+  }, []);
 
   const filtered =
     categories.filter(

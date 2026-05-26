@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const Post = require("../models/Post");
+const User = require("../models/User");
 const createNotification = require("../utils/createNotification");
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
@@ -39,7 +40,12 @@ const getPosts = async (req, res, next) => {
     const filter = buildPostFilter(req.query);
 
     const [posts, total] = await Promise.all([
-      Post.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      Post.find(filter)
+        .populate("author", "username avatar bio")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
       Post.countDocuments(filter),
     ]);
 
@@ -66,7 +72,9 @@ const getPostById = async (req, res, next) => {
         .json({ success: false, message: "Invalid post id" });
     }
 
-    const post = await Post.findById(req.params.id).lean();
+    const post = await Post.findById(req.params.id)
+      .populate("author", "username avatar bio")
+      .lean();
 
     if (!post) {
       return res
@@ -122,6 +130,25 @@ const createPost = async (req, res, next) => {
         authorName:
           req.user.username,
       });
+
+    const author =
+      await User.findById(
+        req.user.userId
+      ).select("followers");
+
+    if (author?.followers?.length) {
+      await Promise.all(
+        author.followers.map((receiver) =>
+          createNotification(req, {
+            sender: req.user.userId,
+            receiver,
+            post: post._id,
+            type: "new_post",
+            message: "đã đăng một bài viết mới",
+          })
+        )
+      );
+    }
 
     res.status(201).json({
       success: true,
@@ -222,7 +249,7 @@ const toggleLikePost = async (req, res, next) => {
       });
     }
 
-    const userId = req.user?._id || req.user?.id;
+    const userId = req.user?.userId;
     const userName = String(req.user.username)
       .trim()
       .toLowerCase();
@@ -310,6 +337,16 @@ const toggleSavePost = async (req, res, next) => {
     post.savedBy = hasSaved
       ? post.savedBy.filter((item) => item !== userName)
       : [...post.savedBy, userName];
+
+    if (!hasSaved && post.author) {
+      await createNotification(req, {
+        sender: req.user.userId,
+        receiver: post.author,
+        post: post._id,
+        type: "save",
+        message: "đã lưu bài viết của bạn",
+      });
+    }
 
     await post.save();
 

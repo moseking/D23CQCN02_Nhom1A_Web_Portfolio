@@ -1,15 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { type ChangeEvent, useState } from "react";
 
 export default function UploadTestPage() {
-  const [file, setFile] = useState(null);
+  const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState("");
   const [uploadedUrl, setUploadedUrl] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleChooseFile = (e) => {
-    const selectedFile = e.target.files[0];
+  const handleChooseFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0] || null;
     setFile(selectedFile);
     setUploadedUrl("");
 
@@ -20,7 +20,7 @@ export default function UploadTestPage() {
 
   const handleUpload = async () => {
     if (!file) {
-      alert("Chọn ảnh/video trước nha");
+      alert("Choose an image or video first.");
       return;
     }
 
@@ -35,17 +35,18 @@ export default function UploadTestPage() {
         body: formData,
       });
 
-      const data = await res.json();
+      const data = (await res.json()) as { message?: string; url?: string };
 
       if (!res.ok) {
         throw new Error(data.message || "Upload failed");
       }
 
-      setUploadedUrl(data.url);
-      alert("Upload thành công!");
+      setUploadedUrl(data.url || "");
+      alert("Upload successful!");
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Upload failed";
       console.log(error);
-      alert("Upload lỗi: " + error.message);
+      alert("Upload error: " + message);
     } finally {
       setLoading(false);
     }

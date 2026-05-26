@@ -1,5 +1,9 @@
-import connectDB from "@/src/lib/mongodb";
+import connectDB from "@/lib/mongodb";
 import { NextResponse } from "next/server";
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Database connection failed";
+}
 
 export async function GET() {
   try {
@@ -12,7 +16,7 @@ export async function GET() {
   } catch (error) {
     return NextResponse.json({
       success: false,
-      message: error.message,
+      message: getErrorMessage(error),
     });
   }
 }

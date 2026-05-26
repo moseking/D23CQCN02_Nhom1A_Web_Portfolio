@@ -37,10 +37,6 @@ export default function UsersTab() {
       action: () => void;
     } | null>(null);
 
-  useEffect(() => {
-    fetchUsers();
-  }, []);
-
   const fetchUsers = async () => {
     try {
       setLoading(true);
@@ -55,6 +51,10 @@ export default function UsersTab() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchUsers();
+  }, []);
 
   const changeRole = async (
     id: string,

@@ -2,14 +2,24 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  type CSSProperties,
+  type Dispatch,
+  type FormEvent,
+  type SetStateAction,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   FiArrowRight,
+  FiBell,
   FiBookmark,
   FiMessageCircle,
   FiCheck,
   FiEdit3,
   FiHeart,
+  FiLogOut,
   FiSearch,
   FiSend,
   FiStar,
@@ -21,6 +31,7 @@ import {
 
 import { useAuthStore } from "../store/authStore";
 import { api } from "../lib/axios";
+import { socket } from "../lib/socket";
 
 const categories = [
   "All",
@@ -41,12 +52,129 @@ const DEFAULT_POST_IMAGE =
 const DEFAULT_AVATAR =
   "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=160&q=80";
 
+type CommentItem = {
+  id: string;
+  authorName: string;
+  content: string;
+  createdAt?: string;
+};
+
+type FeedWork = {
+  id?: string;
+  authorId?: string;
+  title: string;
+  author: string;
+  avatar: string;
+  image: string;
+  mediaType?: "image" | "video";
+  tags: string[];
+  likes: string | number;
+  span?: string;
+  liked?: boolean;
+  saves?: number;
+  saved?: boolean;
+  content?: string;
+  isNew?: boolean;
+  comments?: CommentItem[];
+};
+
+type Creator = {
+  id?: string;
+  name: string;
+  role: string;
+  avatar: string;
+  postsCount?: number;
+  followersCount?: number;
+  isFollowing?: boolean;
+};
+
+type ApiPost = {
+  _id: string;
+  title?: string;
+  caption?: string;
+  content?: string;
+  authorName?: string;
+  author?: {
+    _id?: string;
+    id?: string;
+    username?: string;
+    avatar?: string;
+  };
+  authorId?: string;
+  media?: Array<{
+    url?: string;
+    type?: "image" | "video";
+  }>;
+  image?: string;
+  tags?: string[];
+  likedBy?: string[];
+  likes?: string[];
+  savedBy?: string[];
+};
+
+type ApiComment = {
+  _id: string;
+  authorName: string;
+  content: string;
+  createdAt?: string;
+};
+
+type ApiCreator = {
+  _id: string;
+  username: string;
+  bio?: string;
+  postsCount?: number;
+  followersCount?: number;
+  isFollowing?: boolean;
+  avatar?: string;
+};
+
+type LikeData = {
+  likesCount: number;
+  liked: boolean;
+};
+
+type SaveData = {
+  savesCount: number;
+  saved: boolean;
+};
+
+type FollowData = {
+  followed: boolean;
+  followersCount: number;
+};
+
+type StyleWithDelay = CSSProperties & {
+  "--delay"?: string;
+};
+
+type RequestError = {
+  response?: {
+    data?: {
+      message?: string;
+    };
+  };
+};
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Request failed";
+}
+
+function getRequestErrorMessage(error: unknown) {
+  const requestError = error as RequestError;
+  return requestError.response?.data?.message || getErrorMessage(error);
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
 function getCurrentUserName() {
   if (typeof window === "undefined") return "nhuquynh";
   return localStorage.getItem("username") || "nhuquynh";
 }
 
-const works = [
+const works: FeedWork[] = [
   {
     title: "Mobile Banking App - Modern UI Design",
     author: "Trang",
@@ -121,57 +249,12 @@ const works = [
   },
 ];
 
-const creators = [
-  {
-    name: "Trang Nguyen",
-    role: "UI/UX Designer",
-    followers: "12.5K",
-    avatar:
-      "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=200&q=80",
-  },
-  {
-    name: "An Tran",
-    role: "Brand Designer",
-    followers: "8.2K",
-    avatar:
-      "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=200&q=80",
-  },
-  {
-    name: "Minh Le",
-    role: "Digital Artist",
-    followers: "15.7K",
-    avatar:
-      "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=200&q=80",
-  },
-  {
-    name: "Vy Pham",
-    role: "Product Designer",
-    followers: "9.8K",
-    avatar:
-      "https://images.unsplash.com/photo-1509967419530-da38b4704bc6?auto=format&fit=crop&w=200&q=80",
-  },
-  {
-    name: "Huy Nguyen",
-    role: "Illustrator",
-    followers: "11.3K",
-    avatar:
-      "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=200&q=80",
-  },
-  {
-    name: "Linh Vo",
-    role: "Motion Designer",
-    followers: "7.9K",
-    avatar:
-      "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=200&q=80",
-  },
-];
-
 export default function Home() {
   const [activeCategory, setActiveCategory] = useState("All");
   const [query, setQuery] = useState("");
   const [visibleCount, setVisibleCount] = useState(6);
-  const [apiWorks, setApiWorks] = useState([]);
-  const [creators, setCreators] = useState([]);
+  const [apiWorks, setApiWorks] = useState<FeedWork[]>([]);
+  const [creators, setCreators] = useState<Creator[]>([]);
   const [feedStatus, setFeedStatus] = useState("loading");
   const [currentUserName, setCurrentUserName] = useState("nhuquynh");
 
@@ -194,8 +277,9 @@ export default function Home() {
           throw new Error(result.message || "Cannot load posts");
         }
 
-        const posts = result.data.map((post) => ({
+        const posts = (result.data as ApiPost[]).map((post) => ({
           id: post._id,
+          authorId: post.author?._id || post.author?.id || post.authorId,
           title: post.title || post.caption || "Untitled Post",
           author: post.authorName || post.author?.username || "Creator",
           avatar: post.author?.avatar || DEFAULT_AVATAR,
@@ -227,7 +311,7 @@ export default function Home() {
                 ...post,
                 comments:
                   commentResponse.ok && commentResult.success
-                    ? commentResult.data.map((comment) => ({
+                    ? (commentResult.data as ApiComment[]).map((comment) => ({
                         id: comment._id,
                         authorName: comment.authorName,
                         content: comment.content,
@@ -244,7 +328,7 @@ export default function Home() {
         setApiWorks(postsWithComments);
         setFeedStatus("ready");
       } catch (error) {
-        if (error.name !== "AbortError") {
+        if (!isAbortError(error)) {
           setFeedStatus("offline");
         }
       }
@@ -266,7 +350,7 @@ export default function Home() {
 
         if (response.data?.success) {
           setCreators(
-            response.data.data.map((creator) => ({
+            (response.data.data as ApiCreator[]).map((creator) => ({
               id: creator._id,
               name: creator.username,
               role: creator.bio || `${creator.postsCount} posts`,
@@ -278,7 +362,7 @@ export default function Home() {
           );
         }
       } catch (error) {
-        if (error.name !== "AbortError") {
+        if (!isAbortError(error)) {
           setCreators([]);
         }
       }
@@ -311,7 +395,7 @@ export default function Home() {
 
   const visibleWorks = filteredWorks.slice(0, visibleCount);
 
-  const addCommentToPost = (postId, comment) => {
+  const addCommentToPost = (postId: string, comment: CommentItem) => {
     setApiWorks((currentWorks) =>
       currentWorks.map((work) =>
         work.id === postId
@@ -321,7 +405,7 @@ export default function Home() {
     );
   };
 
-  const updatePostLike = (postId, likeData) => {
+  const updatePostLike = (postId: string, likeData: LikeData) => {
     setApiWorks((currentWorks) =>
       currentWorks.map((work) =>
         work.id === postId
@@ -331,7 +415,7 @@ export default function Home() {
     );
   };
 
-  const updatePostSave = (postId, saveData) => {
+  const updatePostSave = (postId: string, saveData: SaveData) => {
     setApiWorks((currentWorks) =>
       currentWorks.map((work) =>
         work.id === postId
@@ -341,13 +425,13 @@ export default function Home() {
     );
   };
 
-  const removePostFromFeed = (postId) => {
+  const removePostFromFeed = (postId: string) => {
     setApiWorks((currentWorks) =>
       currentWorks.filter((work) => work.id !== postId)
     );
   };
 
-  const updateCreatorFollow = (creatorId, followData) => {
+  const updateCreatorFollow = (creatorId: string, followData: FollowData) => {
     setCreators((currentCreators) =>
       currentCreators.map((creator) =>
         creator.id === creatorId
@@ -488,8 +572,15 @@ export default function Home() {
   );
 }
 
-function Header({ query, setQuery }) {
+function Header({
+  query,
+  setQuery,
+}: {
+  query: string;
+  setQuery: Dispatch<SetStateAction<string>>;
+}) {
   const [mounted, setMounted] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const {
     user,
     isAuthenticated,
@@ -501,6 +592,13 @@ function Header({ query, setQuery }) {
   }, []);
 
   const username = user?.username || "";
+  const profileId = user?.id || user?._id;
+  const profileHref = profileId ? `/users/${profileId}` : "/auth?mode=login";
+
+  const handleLogout = () => {
+    setProfileOpen(false);
+    logout();
+  };
 
   return (
     <header className="sticky top-0 z-30 border-b border-[#e0e3da] bg-[#f7f8f3]/88 px-6 py-5 shadow-[0_8px_30px_rgba(41,45,36,0.06)] backdrop-blur-xl sm:px-10 lg:px-12">
@@ -519,17 +617,8 @@ function Header({ query, setQuery }) {
           <a className="nav-link" href="#creators">
             Trending
           </a>
-          <a className="nav-link" href="#explore">
-            Portfolio Styles
-          </a>
           <a className="nav-link" href="/create-post">
             Create Post
-          </a>
-          <a className="nav-link" href="/search">
-            Search
-          </a>
-          <a className="nav-link" href="/notifications">
-            Notifications
           </a>
         </div>
 
@@ -543,23 +632,42 @@ function Header({ query, setQuery }) {
           />
         </label>
 
-        <div className="ml-auto hidden min-h-[44px] items-center gap-5 text-lg lg:flex">
+        <div className="ml-auto hidden min-h-[44px] items-center gap-4 text-lg lg:flex">
           {!mounted ? (
             <div aria-hidden="true" className="h-11 w-[170px]" />
           ) : isAuthenticated ? (
-            <div className="flex items-center gap-4">
-              <button
-                className="text-slate-500 transition hover:text-red-500"
-                onClick={logout}
-                type="button"
-              >
-                Logout
-              </button>
+            <>
+              <NotificationBell />
 
-              <span className="font-bold text-[#76875f]">
-                {username}
-              </span>
-            </div>
+              <div className="profile-menu">
+                <button
+                  aria-expanded={profileOpen}
+                  aria-label="Open profile menu"
+                  className="profile-trigger"
+                  onClick={() => setProfileOpen((current) => !current)}
+                  type="button"
+                >
+                  <span>{(username || "U").charAt(0).toUpperCase()}</span>
+                </button>
+
+                {profileOpen && (
+                  <div className="profile-dropdown">
+                    <div>
+                      <strong>{username}</strong>
+                      <span>Creator account</span>
+                    </div>
+
+                    <a href={profileHref}>
+                      <FiUser /> Portfolio
+                    </a>
+
+                    <button onClick={handleLogout} type="button">
+                      <FiLogOut /> Logout
+                    </button>
+                  </div>
+                )}
+              </div>
+            </>
           ) : (
             <>
               <a
@@ -579,15 +687,170 @@ function Header({ query, setQuery }) {
           )}
         </div>
 
-        <button
-          aria-label="Open profile"
-          className="icon-button"
-          type="button"
-        >
-          <FiUser />
-        </button>
+        {mounted && !isAuthenticated && (
+          <a
+            aria-label="Open profile"
+            className="icon-button"
+            href="/auth?mode=login"
+          >
+            <FiUser />
+          </a>
+        )}
       </nav>
     </header>
+  );
+}
+
+type HeaderNotification = {
+  _id: string;
+  isRead?: boolean;
+  message?: string;
+  type?: string;
+  createdAt?: string;
+  sender?: {
+    username?: string;
+    avatar?: string;
+  };
+  post?: {
+    title?: string;
+  };
+};
+
+function NotificationBell() {
+  const [notifications, setNotifications] = useState<HeaderNotification[]>([]);
+  const [open, setOpen] = useState(false);
+  const unreadCount = notifications.filter((item) => !item.isRead).length;
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadUnreadCount() {
+      try {
+        const response = await api.get("/notifications");
+        const notifications =
+          (response.data.notifications || []) as HeaderNotification[];
+
+        if (active) {
+          setNotifications(notifications);
+        }
+      } catch {
+        if (active) {
+          setNotifications([]);
+        }
+      }
+    }
+
+    const handleNewNotification = (notification: HeaderNotification) => {
+      setNotifications((current) => [notification, ...current]);
+    };
+
+    loadUnreadCount();
+    socket.on("new_notification", handleNewNotification);
+
+    return () => {
+      active = false;
+      socket.off("new_notification", handleNewNotification);
+    };
+  }, []);
+
+  const markAllAsRead = async () => {
+    try {
+      await api.put("/notifications/read-all");
+      setNotifications((current) =>
+        current.map((item) => ({
+          ...item,
+          isRead: true,
+        }))
+      );
+    } catch {
+      // Keep the current unread state if the request fails.
+    }
+  };
+
+  return (
+    <div className="notification-menu">
+      <button
+        aria-expanded={open}
+        aria-label={
+          unreadCount > 0
+            ? `${unreadCount} unread notifications`
+            : "Notifications"
+        }
+        className="notification-trigger"
+        onClick={() => setOpen((current) => !current)}
+        type="button"
+      >
+        <FiBell />
+        {unreadCount > 0 && (
+          <span>{unreadCount > 9 ? "9+" : unreadCount}</span>
+        )}
+      </button>
+
+      {open && (
+        <div className="notification-dropdown">
+          <div className="notification-popover-head">
+            <div>
+              <strong>Activity</strong>
+              <span>{unreadCount ? `${unreadCount} unread` : "All caught up"}</span>
+            </div>
+
+            <button
+              disabled={unreadCount === 0}
+              onClick={markAllAsRead}
+              type="button"
+            >
+              Mark read
+            </button>
+          </div>
+
+          <div className="notification-popover-body">
+            {notifications.length === 0 ? (
+              <div className="notification-empty-state">
+                <span>
+                  <FiBell />
+                </span>
+                <strong>You are all caught up</strong>
+                <p>
+                  New likes, comments, saves, follows and posts from creators you follow will land here.
+                </p>
+              </div>
+            ) : (
+              notifications.slice(0, 6).map((item) => (
+                <a
+                  className={`notification-row ${item.isRead ? "" : "unread"}`}
+                  href={item.post ? `/notifications` : "#"}
+                  key={item._id}
+                >
+                  <span className="notification-row-avatar">
+                    {item.sender?.avatar ? (
+                      <img
+                        alt={item.sender?.username || "User"}
+                        src={item.sender.avatar}
+                      />
+                    ) : (
+                      (item.sender?.username || "?").charAt(0).toUpperCase()
+                    )}
+                  </span>
+
+                  <span>
+                    <span className="notification-row-kicker">
+                      {item.type?.replace("_", " ") || "activity"}
+                    </span>
+                    <strong>{item.sender?.username || "Someone"}</strong>{" "}
+                    <span className="notification-row-message">
+                      {item.message || item.type}
+                    </span>
+                    {item.post?.title && (
+                      <em>{item.post.title}</em>
+                    )}
+                  </span>
+                </a>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -662,6 +925,14 @@ function WorkCard({
   onSaveUpdated,
   onDeleted,
   currentUserName,
+}: {
+  work: FeedWork;
+  index: number;
+  onCommentCreated: (postId: string, comment: CommentItem) => void;
+  onLikeUpdated: (postId: string, likeData: LikeData) => void;
+  onSaveUpdated: (postId: string, saveData: SaveData) => void;
+  onDeleted: (postId: string) => void;
+  currentUserName: string;
 }) {
   const {
     isAuthenticated,
@@ -698,7 +969,7 @@ function WorkCard({
 
       onLikeUpdated(work.id, result.data);
     } catch (requestError) {
-      setLikeError(requestError.message);
+      setLikeError(getErrorMessage(requestError));
     }
   };
 
@@ -725,7 +996,7 @@ function WorkCard({
 
       onSaveUpdated(work.id, result.data);
     } catch (requestError) {
-      setActionError(requestError.message);
+      setActionError(getErrorMessage(requestError));
     }
   };
 
@@ -749,7 +1020,7 @@ function WorkCard({
 
       onDeleted(work.id);
     } catch (requestError) {
-      setActionError(requestError.message);
+      setActionError(getErrorMessage(requestError));
       setIsDeleting(false);
     }
   };
@@ -759,7 +1030,7 @@ function WorkCard({
       className={`work-card reveal ${
         work.span === "tall" ? "lg:row-span-2" : ""
       }`}
-      style={{ "--delay": `${index * 90}ms` }}
+      style={{ "--delay": `${index * 90}ms` } as StyleWithDelay}
     >
       <a className="work-image" href="#">
         {work.mediaType === "video" ? (
@@ -771,7 +1042,16 @@ function WorkCard({
 
       <div className="mt-5 flex items-center gap-3">
         <img alt={work.author} className="avatar" src={work.avatar} />
-        <span className="text-lg font-semibold">{work.author}</span>
+        {work.authorId ? (
+          <a
+            className="text-lg font-semibold transition hover:text-[#6f7e5b]"
+            href={`/users/${work.authorId}`}
+          >
+            {work.author}
+          </a>
+        ) : (
+          <span className="text-lg font-semibold">{work.author}</span>
+        )}
       </div>
 
       <div className="work-actions">
@@ -828,7 +1108,7 @@ function WorkCard({
       <div className="mt-4 flex flex-wrap gap-2">
         {work.isNew && <span className="tag new-tag">New Post</span>}
 
-        {work.tags.map((tag) => (
+        {work.tags.map((tag: string) => (
           <span className="tag" key={tag}>
             {tag}
           </span>
@@ -891,7 +1171,13 @@ function getCurrentCommentAuthor() {
   return localStorage.getItem("username") || "nhuquynh";
 }
 
-function CommentSection({ work, onCommentCreated }) {
+function CommentSection({
+  work,
+  onCommentCreated,
+}: {
+  work: FeedWork;
+  onCommentCreated: (postId: string, comment: CommentItem) => void;
+}) {
   const {
     user,
     isAuthenticated,
@@ -908,7 +1194,7 @@ function CommentSection({ work, onCommentCreated }) {
     setAuthorName(user?.username || getCurrentCommentAuthor());
   }, [user?.username]);
 
-  const submitComment = async (event) => {
+  const submitComment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
 
@@ -947,7 +1233,7 @@ function CommentSection({ work, onCommentCreated }) {
       setContent("");
       setIsOpen(true);
     } catch (requestError) {
-      setError(requestError.message);
+      setError(getErrorMessage(requestError));
     } finally {
       setIsSubmitting(false);
     }
@@ -1019,7 +1305,15 @@ function CommentSection({ work, onCommentCreated }) {
   );
 }
 
-function CreatorCard({ creator, index, onFollowUpdated }) {
+function CreatorCard({
+  creator,
+  index,
+  onFollowUpdated,
+}: {
+  creator: Creator;
+  index: number;
+  onFollowUpdated: (creatorId: string, followData: FollowData) => void;
+}) {
   const { isAuthenticated } = useAuthStore();
   const [isUpdating, setIsUpdating] = useState(false);
   const [error, setError] = useState("");
@@ -1049,7 +1343,7 @@ function CreatorCard({ creator, index, onFollowUpdated }) {
 
       onFollowUpdated(creator.id, result.data);
     } catch (requestError) {
-      setError(requestError.response?.data?.message || requestError.message);
+      setError(getRequestErrorMessage(requestError));
     } finally {
       setIsUpdating(false);
     }
@@ -1058,18 +1352,22 @@ function CreatorCard({ creator, index, onFollowUpdated }) {
   return (
     <article
       className="creator-card reveal"
-      style={{ "--delay": `${index * 80}ms` }}
+      style={{ "--delay": `${index * 80}ms` } as StyleWithDelay}
     >
       <div className="flex items-center gap-5">
-        <span className="relative">
+        <a className="relative" href={creator.id ? `/users/${creator.id}` : "#"}>
           <img alt={creator.name} className="creator-avatar" src={creator.avatar} />
           <span className="verified">
             <FiCheck />
           </span>
-        </span>
+        </a>
 
         <div>
-          <h3 className="creator-name">{creator.name}</h3>
+          <a href={creator.id ? `/users/${creator.id}` : "#"}>
+            <h3 className="creator-name transition hover:text-[#6f7e5b]">
+              {creator.name}
+            </h3>
+          </a>
           <p className="text-lg text-slate-600">{creator.role}</p>
         </div>
       </div>

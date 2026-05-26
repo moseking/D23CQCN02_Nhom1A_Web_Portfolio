@@ -1,5 +1,7 @@
+import type { LucideIcon } from "lucide-react";
+
 interface ActionButtonProps {
-  icon: any;
+  icon: LucideIcon;
   label: string;
   onClick: () => void;
   variant?: "default" | "danger";

@@ -34,6 +34,45 @@ const userSchema =
         default: "",
       },
 
+      portfolio: {
+        title: {
+          type: String,
+          default: "",
+        },
+
+        location: {
+          type: String,
+          default: "",
+        },
+
+        website: {
+          type: String,
+          default: "",
+        },
+
+        layout: {
+          type: String,
+          enum: [
+            "showcase",
+            "grid",
+            "studio",
+          ],
+          default: "showcase",
+        },
+
+        theme: {
+          type: String,
+          enum: [
+            "",
+            "aurora",
+            "gallery",
+            "noir",
+            "mint",
+          ],
+          default: "",
+        },
+      },
+
       role: {
         type: String,
         enum: [

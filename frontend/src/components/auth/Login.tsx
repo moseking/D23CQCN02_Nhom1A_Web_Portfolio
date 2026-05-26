@@ -1,5 +1,10 @@
 "use client";
 
+import {
+  useState,
+  type FormEvent,
+} from "react";
+
 import { useRouter } from "next/navigation";
 
 import { AuthLayout } from "./AuthLayout";
@@ -7,6 +12,7 @@ import { AuthShowcase } from "./AuthShowcase";
 import { LoginForm } from "./LoginForm";
 
 import { useAuthStore } from "../../store/authStore";
+import { authService } from "../../services/authService";
 
 import type {
   LoginFormValues,
@@ -80,6 +86,30 @@ export function Login({
   onNavigateToHome,
 }: LoginProps) {
   const router = useRouter();
+  const [isForgotMode, setIsForgotMode] =
+    useState(false);
+  const [resetEmail, setResetEmail] =
+    useState("");
+  const [resetOtp, setResetOtp] =
+    useState("");
+  const [
+    newPassword,
+    setNewPassword,
+  ] = useState("");
+  const [
+    resetMessage,
+    setResetMessage,
+  ] = useState("");
+  const [
+    resetError,
+    setResetError,
+  ] = useState("");
+  const [
+    isResetLoading,
+    setIsResetLoading,
+  ] = useState(false);
+  const [otpSent, setOtpSent] =
+    useState(false);
 
   const {
     login,
@@ -114,10 +144,225 @@ export function Login({
       }
     };
 
+  const handleSendResetOtp =
+    async (
+      event: FormEvent<HTMLFormElement>
+    ) => {
+      event.preventDefault();
+
+      if (!resetEmail) {
+        setResetError(
+          "Email is required"
+        );
+        return;
+      }
+
+      try {
+        setIsResetLoading(true);
+        setResetError("");
+        setResetMessage("");
+
+        const res =
+          await authService.forgotPassword({
+            email: resetEmail,
+          });
+
+        setOtpSent(true);
+        setResetMessage(
+          res.data.message ||
+            "OTP has been sent to your email"
+        );
+      } catch (error: any) {
+        setResetError(
+          error.response?.data?.message ||
+            "Could not send OTP"
+        );
+      } finally {
+        setIsResetLoading(false);
+      }
+    };
+
+  const handleResetPassword =
+    async (
+      event: FormEvent<HTMLFormElement>
+    ) => {
+      event.preventDefault();
+
+      if (
+        !resetEmail ||
+        !resetOtp ||
+        !newPassword
+      ) {
+        setResetError(
+          "Email, OTP and new password are required"
+        );
+        return;
+      }
+
+      try {
+        setIsResetLoading(true);
+        setResetError("");
+        setResetMessage("");
+
+        const res =
+          await authService.resetPassword({
+            email: resetEmail,
+            otp: resetOtp.trim(),
+            password:
+              newPassword,
+          });
+
+        setResetMessage(
+          res.data.message ||
+            "Password reset successful"
+        );
+        setResetOtp("");
+        setNewPassword("");
+
+        setTimeout(() => {
+          setIsForgotMode(false);
+          setOtpSent(false);
+        }, 900);
+      } catch (error: any) {
+        setResetError(
+          error.response?.data?.message ||
+            "Could not reset password"
+        );
+      } finally {
+        setIsResetLoading(false);
+      }
+    };
+
+  const forgotPasswordForm = (
+    <form
+      className="space-y-5"
+      onSubmit={
+        otpSent
+          ? handleResetPassword
+          : handleSendResetOtp
+      }
+    >
+      <div className="space-y-2">
+        <label
+          htmlFor="reset-email"
+          className="text-sm font-medium text-[#2C2C2C]"
+        >
+          Email
+        </label>
+        <input
+          id="reset-email"
+          type="email"
+          value={resetEmail}
+          onChange={(event) =>
+            setResetEmail(
+              event.target.value
+            )
+          }
+          readOnly={otpSent}
+          placeholder="Enter your email"
+          className="w-full rounded-xl border border-[#E5E7E1] bg-white px-4 py-3 text-sm text-[#2C2C2C] outline-none focus:border-[#9CAF88] focus:ring-2 focus:ring-[#9CAF88]/20"
+        />
+      </div>
+
+      {otpSent && (
+        <>
+          <div className="space-y-2">
+            <label
+              htmlFor="reset-otp"
+              className="text-sm font-medium text-[#2C2C2C]"
+            >
+              OTP
+            </label>
+            <input
+              id="reset-otp"
+              type="text"
+              value={resetOtp}
+              onChange={(event) =>
+                setResetOtp(
+                  event.target.value
+                )
+              }
+              inputMode="numeric"
+              maxLength={6}
+              placeholder="Enter OTP"
+              className="w-full rounded-xl border border-[#E5E7E1] bg-white px-4 py-3 text-sm text-[#2C2C2C] outline-none focus:border-[#9CAF88] focus:ring-2 focus:ring-[#9CAF88]/20"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label
+              htmlFor="new-password"
+              className="text-sm font-medium text-[#2C2C2C]"
+            >
+              New password
+            </label>
+            <input
+              id="new-password"
+              type="password"
+              value={newPassword}
+              onChange={(event) =>
+                setNewPassword(
+                  event.target.value
+                )
+              }
+              placeholder="Enter new password"
+              className="w-full rounded-xl border border-[#E5E7E1] bg-white px-4 py-3 text-sm text-[#2C2C2C] outline-none focus:border-[#9CAF88] focus:ring-2 focus:ring-[#9CAF88]/20"
+            />
+          </div>
+        </>
+      )}
+
+      {resetError && (
+        <p className="text-sm text-red-600">
+          {resetError}
+        </p>
+      )}
+
+      {resetMessage && (
+        <p className="text-sm text-[#557048]">
+          {resetMessage}
+        </p>
+      )}
+
+      <button
+        type="submit"
+        disabled={isResetLoading}
+        className="w-full rounded-xl bg-[#7C8C6B] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#6F7F60] disabled:cursor-not-allowed disabled:opacity-70"
+      >
+        {isResetLoading
+          ? "Please wait..."
+          : otpSent
+          ? "Reset Password"
+          : "Send OTP"}
+      </button>
+
+      <button
+        type="button"
+        onClick={() => {
+          setIsForgotMode(false);
+          setOtpSent(false);
+          setResetError("");
+          setResetMessage("");
+        }}
+        className="w-full text-sm font-semibold text-[#7C8C6B] hover:text-[#9CAF88]"
+      >
+        Back to sign in
+      </button>
+    </form>
+  );
+
   return (
     <AuthLayout
-      title="Welcome back"
-      subtitle="Sign in to your creative space"
+      title={
+        isForgotMode
+          ? "Reset password"
+          : "Welcome back"
+      }
+      subtitle={
+        isForgotMode
+          ? "Use the OTP sent to your email"
+          : "Sign in to your creative space"
+      }
       onNavigateToHome={
         onNavigateToHome
       }
@@ -166,14 +411,21 @@ export function Login({
         />
       }
     >
-      <LoginForm
-        onSubmit={handleSubmit}
-        onNavigateToRegister={
-          onNavigateToRegister
-        }
-        isLoading={isLoading}
-        error={error}
-      />
+      {isForgotMode ? (
+        forgotPasswordForm
+      ) : (
+        <LoginForm
+          onSubmit={handleSubmit}
+          onNavigateToRegister={
+            onNavigateToRegister
+          }
+          onForgotPassword={() =>
+            setIsForgotMode(true)
+          }
+          isLoading={isLoading}
+          error={error}
+        />
+      )}
     </AuthLayout>
   );
 }

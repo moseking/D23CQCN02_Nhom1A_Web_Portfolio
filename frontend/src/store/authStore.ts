@@ -31,7 +31,11 @@ type AuthState = {
 
   register: (
     data: RegisterFormValues
-  ) => Promise<void>;
+  ) => Promise<{
+    success: boolean;
+    message: string;
+    email: string;
+  }>;
 
   fetchCurrentUser: () => Promise<void>;
 
@@ -102,9 +106,7 @@ export const useAuthStore =
       }
     },
 
-    register: async (
-      data: RegisterFormValues
-    ) => {
+    register: async (data) => {
       try {
         set({
           isLoading: true,
@@ -116,25 +118,11 @@ export const useAuthStore =
             data
           );
 
-        localStorage.setItem(
-          "token",
-          res.data.token
-        );
-
-        localStorage.setItem(
-          "username",
-          res.data.user.username
-        );
-
         set({
-          user: res.data.user,
-
-          token: res.data.token,
-
-          isAuthenticated: true,
-
           isLoading: false,
         });
+
+        return res.data;
       } catch (error: any) {
         console.log(error);
 
@@ -145,6 +133,8 @@ export const useAuthStore =
 
           isLoading: false,
         });
+
+        throw error;
       }
     },
     fetchCurrentUser: async () => {

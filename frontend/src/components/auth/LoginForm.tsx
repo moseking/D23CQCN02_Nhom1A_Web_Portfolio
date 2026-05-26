@@ -31,6 +31,7 @@ interface LoginFormProps {
 
   onNavigateToRegister?: () => void;
 
+  onForgotPassword?: () => void;
 
   isLoading?: boolean;
 
@@ -40,6 +41,7 @@ interface LoginFormProps {
 export function LoginForm({
   onSubmit,
   onNavigateToRegister,
+  onForgotPassword,
   isLoading = false,
   error,
 }: LoginFormProps) {
@@ -161,6 +163,7 @@ export function LoginForm({
 
         <button
           type="button"
+          onClick={onForgotPassword}
           className="text-sm text-[#7C8C6B] hover:text-[#9CAF88]"
         >
           Forgot password?

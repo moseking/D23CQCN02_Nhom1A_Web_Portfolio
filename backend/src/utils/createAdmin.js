@@ -14,6 +14,17 @@ const createAdmin =
         });
 
       if (existingAdmin) {
+        if (!existingAdmin.isVerified) {
+          existingAdmin.isVerified =
+            true;
+          existingAdmin.verifyOTP =
+            undefined;
+          existingAdmin.verifyOTPExpire =
+            undefined;
+
+          await existingAdmin.save();
+        }
+
         console.log(
           "Admin already exists"
         );
@@ -39,6 +50,8 @@ const createAdmin =
         role: "admin",
 
         status: "active",
+
+        isVerified: true,
       });
 
       console.log(

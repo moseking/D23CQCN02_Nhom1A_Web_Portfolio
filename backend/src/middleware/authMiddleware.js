@@ -45,7 +45,7 @@ const protect =
         await User.findById(
           decoded.userId
         ).select(
-          "-password"
+          "-password -verifyOTP -verifyOTPExpire -resetPasswordOtp -resetPasswordOtpExpires"
         );
 
       if (!user) {

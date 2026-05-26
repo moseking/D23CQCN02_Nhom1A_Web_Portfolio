@@ -11,6 +11,9 @@ frontend/.next/
 .env*
 frontend/.env*
 backend/.env*
+!.env.example
+!frontend/.env.example
+!backend/.env.example
 
 # build
 build/

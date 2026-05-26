@@ -54,7 +54,9 @@ const getUsers =
     try {
       const users =
         await User.find()
-          .select("-password")
+          .select(
+            "-password -verifyOTP -verifyOTPExpire -resetPasswordOtp -resetPasswordOtpExpires"
+          )
           .sort({
             createdAt: -1,
           });
@@ -120,7 +122,7 @@ const changeUserRole =
           { role },
           { new: true }
         ).select(
-          "-password"
+          "-password -verifyOTP -verifyOTPExpire -resetPasswordOtp -resetPasswordOtpExpires"
         );
 
       res.json(user);
@@ -159,7 +161,14 @@ const toggleBanUser =
 
       await user.save();
 
-      res.json(user);
+      const safeUser =
+        await User.findById(
+          user._id
+        ).select(
+          "-password -verifyOTP -verifyOTPExpire -resetPasswordOtp -resetPasswordOtpExpires"
+        );
+
+      res.json(safeUser);
     } catch (error) {
       res.status(500).json({
         message:

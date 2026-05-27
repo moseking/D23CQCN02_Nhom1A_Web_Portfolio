@@ -35,9 +35,14 @@ type Tab =
 
 export default function AdminPage() {
   const router = useRouter();
-  const { logout } = useAuthStore();
+  const {
+    fetchCurrentUser,
+    logout,
+  } = useAuthStore();
   const [tab, setTab] =
     useState<Tab>("users");
+  const [canViewAdmin, setCanViewAdmin] =
+    useState(false);
   const [stats, setStats] =
     useState({
         totalUsers: 0,
@@ -72,8 +77,33 @@ const [loading, setLoading] =
   };
 
   useEffect(() => {
-    fetchStats();
-  }, []);
+    async function checkAdmin() {
+      await fetchCurrentUser();
+
+      const authState =
+        useAuthStore.getState();
+
+      if (!authState.isAuthenticated) {
+        router.push("/auth?mode=login");
+        return;
+      }
+
+      if (authState.user?.role !== "admin") {
+        router.push("/feed");
+        return;
+      }
+
+      setCanViewAdmin(true);
+    }
+
+    checkAdmin();
+  }, [fetchCurrentUser, router]);
+
+  useEffect(() => {
+    if (canViewAdmin) {
+      fetchStats();
+    }
+  }, [canViewAdmin]);
 
   const handleLogout = () => {
     logout();
@@ -105,6 +135,14 @@ const [loading, setLoading] =
       icon: FolderKanban,
     },
   ];
+
+  if (!canViewAdmin) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#F6F7F2] text-[#2C2C2C]">
+        Checking admin access...
+      </main>
+    );
+  }
 
   return (
     <div

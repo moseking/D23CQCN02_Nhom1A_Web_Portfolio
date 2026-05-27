@@ -5,6 +5,7 @@
 import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from "react";
 import { FiAlertCircle, FiArrowLeft, FiImage, FiLink, FiSend, FiStar, FiUpload } from "react-icons/fi";
 import { api } from "../../lib/axios";
+import { useAuthStore } from "../../store/authStore";
 
 const FALLBACK_AUTHOR = "nhuquynh";
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
@@ -56,6 +57,23 @@ function getCurrentUsername() {
 }
 
 function getErrorMessage(error: unknown) {
+  const requestError = error as {
+    response?: {
+      data?: {
+        message?: string;
+      };
+    };
+    message?: string;
+  };
+
+  if (requestError.response?.data?.message) {
+    return requestError.response.data.message;
+  }
+
+  if (requestError.message) {
+    return requestError.message;
+  }
+
   return error instanceof Error ? error.message : "Request failed";
 }
 
@@ -110,11 +128,17 @@ function getUsableMediaUrl(value: string) {
 }
 
 export default function CreatePostPage() {
+  const { isAuthenticated } = useAuthStore();
+  const [mounted, setMounted] = useState(false);
   const [form, setForm] = useState(initialForm);
   const [imageMode, setImageMode] = useState("url");
   const [error, setError] = useState("");
   const [previewError, setPreviewError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     setForm((current) => ({
@@ -177,6 +201,12 @@ export default function CreatePostPage() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
+
+    if (!isAuthenticated) {
+      setError("Please login to continue");
+      return;
+    }
+
     setIsSubmitting(true);
 
     const mediaValue = imageMode === "upload" ? form.uploadedMedia : urlMedia;
@@ -239,6 +269,8 @@ export default function CreatePostPage() {
     }
   };
 
+  if (!mounted) return null;
+
   return (
     <main className="create-page min-h-screen bg-[#f7f8f3] px-6 py-6 text-[#252525] sm:px-10 lg:px-12">
       <nav className="mx-auto flex max-w-[1500px] items-center justify-between">
@@ -266,6 +298,17 @@ export default function CreatePostPage() {
         </aside>
 
         <div className="create-card reveal">
+          {!isAuthenticated ? (
+            <div className="form-empty-state">
+              <h2>Please login to continue</h2>
+              <p className="mt-3 text-slate-600">
+                You can explore public posts as a guest, but creating posts requires an account.
+              </p>
+              <a className="primary-button mt-6" href="/auth?mode=login">
+                Login
+              </a>
+            </div>
+          ) : (
           <form className="composer-form" onSubmit={handleSubmit}>
             <div className="field-grid two">
               <label>
@@ -372,6 +415,7 @@ export default function CreatePostPage() {
               <FiSend /> {isSubmitting ? "Publishing..." : "Publish Post"}
             </button>
           </form>
+          )}
 
           <article className="post-preview">
             <div className="preview-image">

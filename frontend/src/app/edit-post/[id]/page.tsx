@@ -14,6 +14,7 @@ import {
   FiUpload,
 } from "react-icons/fi";
 import { api } from "../../../lib/axios";
+import { useAuthStore } from "../../../store/authStore";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 const FALLBACK_AUTHOR = "nhuquynh";
@@ -103,6 +104,8 @@ function getUsableMediaUrl(value: string) {
 export default function EditPostPage() {
   const params = useParams();
   const postId = Array.isArray(params.id) ? params.id[0] : params.id;
+  const { isAuthenticated } = useAuthStore();
+  const [mounted, setMounted] = useState(false);
   const [form, setForm] = useState<PostForm>({
     title: "",
     content: "",
@@ -117,6 +120,10 @@ export default function EditPostPage() {
   const [error, setError] = useState("");
   const [previewError, setPreviewError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -209,6 +216,12 @@ export default function EditPostPage() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
+
+    if (!isAuthenticated) {
+      setError("Please login to continue");
+      return;
+    }
+
     setIsSubmitting(true);
 
     const mediaValue = imageMode === "upload" ? form.uploadedMedia : urlMedia;
@@ -254,6 +267,8 @@ export default function EditPostPage() {
     }
   };
 
+  if (!mounted) return null;
+
   return (
     <main className="create-page min-h-screen bg-[#f7f8f3] px-6 py-6 text-[#252525] sm:px-10 lg:px-12">
       <nav className="mx-auto flex max-w-[1500px] items-center justify-between">
@@ -281,7 +296,17 @@ export default function EditPostPage() {
         </aside>
 
         <div className="create-card reveal">
-          {status === "loading" ? (
+          {!isAuthenticated ? (
+            <div className="form-empty-state">
+              <h2>Please login to continue</h2>
+              <p className="mt-3 text-slate-600">
+                Public posts are viewable as a guest, but editing requires an account.
+              </p>
+              <a className="primary-button mt-6" href="/auth?mode=login">
+                Login
+              </a>
+            </div>
+          ) : status === "loading" ? (
             <div className="form-empty-state">Loading post...</div>
           ) : (
             <>

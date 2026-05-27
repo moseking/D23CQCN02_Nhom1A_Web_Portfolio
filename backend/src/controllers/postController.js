@@ -116,19 +116,26 @@ const createPost = async (req, res, next) => {
       status,
     } = req.body;
 
+    if (!req.user?.userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
+
     const post =
       await Post.create({
-        title,
-        content,
-        media,
-        tags,
-        status,
+        title: title?.trim(),
+        content: content?.trim(),
+        media: Array.isArray(media) ? media : [],
+        tags: Array.isArray(tags) ? tags : [],
+        status: status || "published",
 
         author:
           req.user.userId,
 
         authorName:
-          req.user.username,
+          req.user.username || "Anonymous",
       });
 
     const author =

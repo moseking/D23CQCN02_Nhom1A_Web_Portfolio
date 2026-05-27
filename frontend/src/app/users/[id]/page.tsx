@@ -256,6 +256,11 @@ export default function UserPortfolioPage() {
   }, [isEditorOpen]);
 
   const openEditor = () => {
+    if (!isAuthenticated) {
+      setProfileError("Please login to continue");
+      return;
+    }
+
     if (!portfolio?.user.isSelf) return;
 
     setProfileError("");
@@ -284,6 +289,12 @@ export default function UserPortfolioPage() {
 
   const handleProfileSave = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    if (!isAuthenticated) {
+      setProfileError("Please login to continue");
+      return;
+    }
+
     if (!portfolio?.user.isSelf) return;
 
     try {
@@ -340,7 +351,7 @@ export default function UserPortfolioPage() {
     }
 
     if (!isAuthenticated) {
-      setFollowError("Please login to follow this creator.");
+      setFollowError("Please login to continue");
       return;
     }
 

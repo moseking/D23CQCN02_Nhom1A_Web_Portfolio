@@ -15,6 +15,83 @@ const escapeRegex = (value) =>
 
 const VERIFY_OTP_EXPIRE_MINUTES = 5;
 
+const createOtp = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
+
+const getOtpExpireDate = (minutes) => {
+  return new Date(Date.now() + minutes * 60 * 1000);
+};
+
+const isVerifyOtpValid = async (hashedOtp, otp) => {
+  return bcrypt.compare(otp, hashedOtp);
+};
+
+const sendVerifyOtpEmail = async (email, otp) => {
+  return sendEmail(
+    email,
+    "Email verification OTP",
+    `Your verification OTP is ${otp}. This OTP will expire in ${VERIFY_OTP_EXPIRE_MINUTES} minutes.`
+  );
+};
+
+const isEmailDeliveryError = (error) => {
+  return [
+    "EENVELOPE",
+    "EMAIL_REJECTED",
+    "EAUTH",
+    "ECONNECTION",
+    "ETIMEDOUT",
+    "ESOCKET",
+  ].includes(error?.code);
+};
+
+const normalizePortfolioInput = (portfolio) => {
+  const normalized = {};
+
+  if (typeof portfolio.title === "string") {
+    normalized.title = portfolio.title.trim().slice(0, 80);
+  }
+
+  if (typeof portfolio.location === "string") {
+    normalized.location = portfolio.location.trim().slice(0, 80);
+  }
+
+  if (typeof portfolio.website === "string") {
+    normalized.website = portfolio.website.trim().slice(0, 160);
+  }
+
+  if (["showcase", "grid", "studio"].includes(portfolio.layout)) {
+    normalized.layout = portfolio.layout;
+  }
+
+  if (["", "aurora", "gallery", "noir", "mint"].includes(portfolio.theme)) {
+    normalized.theme = portfolio.theme;
+  }
+
+  return normalized;
+};
+
+const getEmailErrorMessage = (error) => {
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    return "Email service is not configured. Missing EMAIL_USER or EMAIL_PASS.";
+  }
+
+  if (error?.code === "EAUTH") {
+    return "Email authentication failed. Please check Gmail app password.";
+  }
+
+  if (error?.code === "ECONNECTION" || error?.code === "ETIMEDOUT") {
+    return "Could not connect to Gmail SMTP. Please check network or SMTP settings.";
+  }
+
+  if (error?.code === "EMAIL_REJECTED" || error?.code === "EENVELOPE") {
+    return "Email was rejected by recipient server. Please check the email address.";
+  }
+
+  return "Could not send OTP email. Please try again later.";
+};
+
 const generateToken = (userId, role) => {
   return jwt.sign(
     {
@@ -25,17 +102,51 @@ const generateToken = (userId, role) => {
     process.env.JWT_SECRET,
 
     {
+      expiresIn: "15m",
+    }
+  );
+};
+
+const generateRefreshToken = (userId, role) => {
+  return jwt.sign(
+    {
+      userId,
+      role,
+    },
+
+    process.env.JWT_REFRESH_SECRET,
+
+    {
       expiresIn: "7d",
     }
   );
 };
 
+const refreshTokenCookieOptions = {
+  httpOnly: true,
+  secure: false,
+  sameSite: "lax",
+};
+
+const setRefreshTokenCookie = (res, refreshToken) => {
+  res.cookie("refreshToken", refreshToken, refreshTokenCookieOptions);
+};
+
 const register = async (req, res) => {
   try {
-    const { username, email, password } = req.body;
+    const username = req.body.username?.trim();
+    const email = req.body.email?.trim().toLowerCase();
+    const { password } = req.body;
+
+    console.log("Register request:", {
+      username,
+      email,
+      hasPassword: Boolean(password),
+    });
 
     if (!username || !email || !password) {
       return res.status(400).json({
+        success: false,
         message: "Please fill all fields",
       });
     }
@@ -46,6 +157,7 @@ const register = async (req, res) => {
 
     if (existingUser) {
       return res.status(400).json({
+        success: false,
         message: "Email already exists",
       });
     }
@@ -59,18 +171,17 @@ const register = async (req, res) => {
 
       console.log("Mail sent successfully");
     } catch (emailError) {
-      console.log(emailError);
+      console.error("Register OTP email failed:", {
+        email,
+        code: emailError.code,
+        command: emailError.command,
+        responseCode: emailError.responseCode,
+        message: emailError.message,
+      });
 
-      if (isEmailDeliveryError(emailError)) {
-        return res.status(400).json({
-          success: false,
-          message: "Email does not exist or cannot receive verification mail",
-        });
-      }
-
-      return res.status(500).json({
+      return res.status(isEmailDeliveryError(emailError) ? 400 : 500).json({
         success: false,
-        message: "Email does not exist or cannot receive verification mail",
+        message: getEmailErrorMessage(emailError),
       });
     }
 
@@ -135,13 +246,18 @@ const login = async (req, res) => {
       });
     }
 
-    const token = generateToken(user._id, user.role);
+    const accessToken = generateToken(user._id, user.role);
+    const refreshToken = generateRefreshToken(user._id, user.role);
+
+    setRefreshTokenCookie(res, refreshToken);
 
     res.status(200).json({
       success: true,
       message: "Login successful",
 
-      token,
+      accessToken,
+
+      token: accessToken,
 
       user: {
         id: user._id,
@@ -164,6 +280,49 @@ const login = async (req, res) => {
       message: error.message,
     });
   }
+};
+
+const refreshToken = async (req, res) => {
+  try {
+    const token = req.cookies?.refreshToken;
+
+    if (!token) {
+      return res.status(401).json({
+        message: "Unauthorized",
+      });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
+
+    const user = await User.findById(decoded.userId);
+
+    if (!user) {
+      return res.status(401).json({
+        message: "Unauthorized",
+      });
+    }
+
+    const accessToken = generateToken(user._id, user.role);
+
+    res.status(200).json({
+      success: true,
+      accessToken,
+      token: accessToken,
+    });
+  } catch (error) {
+    res.status(401).json({
+      message: "Unauthorized",
+    });
+  }
+};
+
+const logout = (req, res) => {
+  res.clearCookie("refreshToken", refreshTokenCookieOptions);
+
+  res.status(200).json({
+    success: true,
+    message: "Logout successful",
+  });
 };
 
 const verifyEmail = async (req, res) => {
@@ -280,11 +439,17 @@ const resendOtp = async (req, res) => {
 
       console.log("Mail sent successfully");
     } catch (emailError) {
-      console.log(emailError);
+      console.error("Resend OTP email failed:", {
+        email: user.email,
+        code: emailError.code,
+        command: emailError.command,
+        responseCode: emailError.responseCode,
+        message: emailError.message,
+      });
 
-      return res.status(500).json({
+      return res.status(isEmailDeliveryError(emailError) ? 400 : 500).json({
         success: false,
-        message: "Email does not exist or cannot receive verification mail",
+        message: getEmailErrorMessage(emailError),
       });
     }
 
@@ -347,10 +512,17 @@ const forgotPassword = async (req, res) => {
       user.resetPasswordOtpExpires = null;
       await user.save();
 
+      console.error("Forgot password OTP email failed:", {
+        email: user.email,
+        code: emailError.code,
+        command: emailError.command,
+        responseCode: emailError.responseCode,
+        message: emailError.message,
+      });
+
       return res.status(500).json({
         success: false,
-        message: "Could not send OTP email. Please check email configuration.",
-        error: emailError.message,
+        message: getEmailErrorMessage(emailError),
       });
     }
 
@@ -831,6 +1003,8 @@ const toggleFollowUser = async (req, res) => {
 module.exports = {
   register,
   login,
+  refreshToken,
+  logout,
   verifyEmail,
   resendOtp,
   forgotPassword,

@@ -2,7 +2,9 @@ const express = require("express");
 
 const {
   login,
+  logout,
   register,
+  refreshToken,
   verifyEmail,
   resendOtp,
   forgotPassword,
@@ -23,6 +25,8 @@ const router = express.Router();
 
 router.post("/register", register);
 router.post("/login", login);
+router.post("/refresh-token", refreshToken);
+router.post("/logout", logout);
 router.post("/verify-email", verifyEmail);
 router.post("/resend-otp", resendOtp);
 router.post("/forgot-password", forgotPassword);

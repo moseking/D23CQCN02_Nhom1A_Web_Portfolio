@@ -250,17 +250,23 @@ const works: FeedWork[] = [
 ];
 
 export default function Home() {
+  const authUser = useAuthStore((state) => state.user);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const [activeCategory, setActiveCategory] = useState("All");
   const [query, setQuery] = useState("");
   const [visibleCount, setVisibleCount] = useState(6);
   const [apiWorks, setApiWorks] = useState<FeedWork[]>([]);
   const [creators, setCreators] = useState<Creator[]>([]);
   const [feedStatus, setFeedStatus] = useState("loading");
-  const [currentUserName, setCurrentUserName] = useState("nhuquynh");
+  const [currentUserName, setCurrentUserName] = useState("");
 
   useEffect(() => {
-    setCurrentUserName(getCurrentUserName());
-  }, []);
+    setCurrentUserName(
+      isAuthenticated
+        ? authUser?.username || getCurrentUserName()
+        : ""
+    );
+  }, [authUser?.username, isAuthenticated]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -498,7 +504,6 @@ export default function Home() {
               onLikeUpdated={updatePostLike}
               onSaveUpdated={updatePostSave}
               onDeleted={removePostFromFeed}
-              currentUserName={currentUserName}
               work={work}
             />
           ))}
@@ -924,7 +929,6 @@ function WorkCard({
   onLikeUpdated,
   onSaveUpdated,
   onDeleted,
-  currentUserName,
 }: {
   work: FeedWork;
   index: number;
@@ -932,9 +936,9 @@ function WorkCard({
   onLikeUpdated: (postId: string, likeData: LikeData) => void;
   onSaveUpdated: (postId: string, saveData: SaveData) => void;
   onDeleted: (postId: string) => void;
-  currentUserName: string;
 }) {
   const {
+    user,
     isAuthenticated,
   } = useAuthStore();
   const [likeError, setLikeError] = useState("");
@@ -942,9 +946,19 @@ function WorkCard({
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  const currentUserId = user?.id || user?._id || "";
+  const currentUserName = user?.username || "";
   const isOwner =
-    work.id &&
-    work.author?.trim().toLowerCase() === currentUserName.toLowerCase();
+    Boolean(
+      isAuthenticated &&
+        work.id &&
+        ((work.authorId &&
+          currentUserId &&
+          work.authorId.toString() === currentUserId.toString()) ||
+          (currentUserName &&
+            work.author?.trim().toLowerCase() ===
+              currentUserName.trim().toLowerCase()))
+    );
 
   const handleLike = async () => {
     setLikeError("");
@@ -955,7 +969,7 @@ function WorkCard({
     }
 
     if (!isAuthenticated) {
-      setLikeError("Please login to like posts.");
+      setLikeError("Please login to continue");
       return;
     }
 
@@ -982,7 +996,7 @@ function WorkCard({
     }
 
     if (!isAuthenticated) {
-      setActionError("Please login to save posts.");
+      setActionError("Please login to continue");
       return;
     }
 
@@ -1002,6 +1016,11 @@ function WorkCard({
 
   const handleDelete = async () => {
     setActionError("");
+
+    if (!isAuthenticated) {
+      setActionError("Please login to continue");
+      return;
+    }
 
     if (!work.id || !isOwner) {
       setActionError("You can only delete posts created by your account.");
@@ -1064,7 +1083,7 @@ function WorkCard({
           <FiBookmark /> <span>{work.saves || 0}</span>
         </button>
 
-        {work.id && (
+        {work.id && isOwner && (
           <a
             aria-label="Edit post"
             className="edit-action"
@@ -1204,7 +1223,7 @@ function CommentSection({
     }
 
     if (!isAuthenticated) {
-      setError("Please login to comment.");
+      setError("Please login to continue");
       return;
     }
 
@@ -1283,9 +1302,11 @@ function CommentSection({
                 disabled={!work.id}
                 onChange={(event) => setContent(event.target.value)}
                 placeholder={
-                  work.id
-                    ? "Write a comment..."
-                    : "Comments are enabled for saved posts"
+                  !isAuthenticated
+                    ? "Please login to continue"
+                    : work.id
+                      ? "Write a comment..."
+                      : "Comments are enabled for saved posts"
                 }
                 required
                 type="text"
@@ -1322,7 +1343,7 @@ function CreatorCard({
     setError("");
 
     if (!isAuthenticated) {
-      setError("Please login to follow creators.");
+      setError("Please login to continue");
       return;
     }
 

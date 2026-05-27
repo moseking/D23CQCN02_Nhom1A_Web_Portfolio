@@ -1,5 +1,10 @@
 import { create } from "zustand";
 
+import {
+  api,
+  setAuthLoggingOut,
+} from "../lib/axios";
+
 import { authService } from "../services/authService";
 
 import type {
@@ -50,16 +55,36 @@ type AuthState = {
 
   fetchCurrentUser: () => Promise<void>;
 
-  logout: () => void;
+  logout: () => Promise<void>;
 };
 
 type ApiError = {
   response?: {
+    status?: number;
     data?: {
       message?: string;
     };
   };
+  request?: unknown;
+  message?: string;
 };
+
+function getAuthErrorMessage(
+  error: unknown,
+  fallback: string
+) {
+  const apiError = error as ApiError;
+
+  if (apiError.response?.data?.message) {
+    return apiError.response.data.message;
+  }
+
+  if (apiError.request) {
+    return "Cannot connect to backend API. Please check backend server and API URL.";
+  }
+
+  return apiError.message || fallback;
+}
 
 function normalizeUser(user: User): User {
   return {
@@ -98,9 +123,13 @@ export const useAuthStore =
         const res =
           await authService.login(data);
 
+        const accessToken =
+          res.data.accessToken ||
+          res.data.token;
+
         localStorage.setItem(
           "token",
-          res.data.token
+          accessToken
         );
 
         localStorage.setItem(
@@ -113,7 +142,7 @@ export const useAuthStore =
             res.data.user
           ),
 
-          token: res.data.token,
+          token: accessToken,
 
           isAuthenticated: true,
 
@@ -144,40 +173,29 @@ export const useAuthStore =
 
         const res =
           await authService.register(
-            data
+            {
+              username:
+                data.username.trim(),
+              email:
+                data.email.trim(),
+              password:
+                data.password,
+            }
           );
 
-        localStorage.setItem(
-          "token",
-          res.data.token
-        );
-
-        localStorage.setItem(
-          "username",
-          res.data.user.username
-        );
-
         set({
-          user: normalizeUser(
-            res.data.user
-          ),
-
-          token: res.data.token,
-
-          isAuthenticated: true,
-
           isLoading: false,
         });
 
         return res.data;
       } catch (error: unknown) {
         console.log(error);
-        const apiError = error as ApiError;
 
         set({
-          error:
-            apiError.response?.data?.message ||
-            "Register failed",
+          error: getAuthErrorMessage(
+            error,
+            "Register failed"
+          ),
 
           isLoading: false,
         });
@@ -195,10 +213,25 @@ export const useAuthStore =
         const res =
           await authService.me();
 
+        const currentToken =
+          localStorage.getItem("token");
+
+        if (!currentToken) {
+          set({
+            user: null,
+            token: null,
+            isAuthenticated: false,
+          });
+
+          return;
+        }
+
         set({
           user: normalizeUser(
             res.data
           ),
+
+          token: currentToken,
 
           isAuthenticated: true,
         });
@@ -218,10 +251,11 @@ export const useAuthStore =
         });
       }
     },
-    logout: () => {
+    logout: async () => {
+      setAuthLoggingOut(true);
       localStorage.removeItem("token");
-
       localStorage.removeItem("username");
+
       set({
         user: null,
 
@@ -233,5 +267,19 @@ export const useAuthStore =
 
         error: null,
       });
+
+      try {
+        await api.post(
+          "/auth/logout",
+          undefined,
+          {
+            _skipAuthRefresh: true,
+          }
+        );
+      } catch {
+        // Local logout is still valid even if the network request fails.
+      } finally {
+        setAuthLoggingOut(false);
+      }
     },
   }));

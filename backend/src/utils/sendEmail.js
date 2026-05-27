@@ -27,14 +27,29 @@ const sendEmail = async (
 ) => {
   const transporter = createTransporter();
 
-  const info =
-    await transporter.sendMail({
-    from: process.env.EMAIL_USER,
-    to,
-    subject,
-    text,
-    html,
-  });
+  let info;
+
+  try {
+    info =
+      await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to,
+      subject,
+      text,
+      html,
+    });
+  } catch (error) {
+    console.error("sendEmail failed:", {
+      to,
+      subject,
+      code: error.code,
+      command: error.command,
+      responseCode: error.responseCode,
+      message: error.message,
+    });
+
+    throw error;
+  }
 
   if (
     info.rejected &&
@@ -51,6 +66,14 @@ const sendEmail = async (
 
     throw error;
   }
+
+  console.log("sendEmail success:", {
+    to,
+    subject,
+    messageId: info.messageId,
+    accepted: info.accepted,
+    rejected: info.rejected,
+  });
 
   return info;
 };

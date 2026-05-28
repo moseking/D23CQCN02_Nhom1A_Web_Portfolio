@@ -16,7 +16,7 @@ const getCommentsByPost = async (req, res, next) => {
       });
     }
 
-    const comments = await Comment.find({ post: postId })
+    const comments = await Comment.find({ post: postId, visible: true, })
       .populate("author", "username avatar")
       .sort({ createdAt: -1 })
       .lean();

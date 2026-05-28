@@ -5,26 +5,30 @@
 import {
   type ChangeEvent,
   type FormEvent,
+  useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useParams } from "next/navigation";
 import {
   FiAlertCircle,
   FiArrowLeft,
+  FiCheck,
+  FiChevronDown,
   FiImage,
   FiLink,
   FiSave,
   FiStar,
   FiUpload,
+  FiX,
 } from "react-icons/fi";
 import { api } from "../../../lib/axios";
 import { useAuthStore } from "../../../store/authStore";
 import { socket } from "../../../lib/socket";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
-const FALLBACK_AUTHOR = "nhuquynh";
+const FALLBACK_AUTHOR = "";
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 const DEFAULT_PREVIEW =
   "https://images.unsplash.com/photo-1541701494587-cb58502866ab?auto=format&fit=crop&w=1200&q=80";
@@ -38,7 +42,14 @@ type PostForm = {
   imageUrl: string;
   uploadedMedia: string;
   uploadedMediaType: MediaType;
-  tags: string;
+  tags: string[];
+};
+
+type CategoryOption = {
+  _id: string;
+  name: string;
+  slug?: string;
+  postsCount?: number;
 };
 
 type ApiPost = {
@@ -139,29 +150,30 @@ export default function EditPostPage() {
     imageUrl: "",
     uploadedMedia: "",
     uploadedMediaType: "image",
-    tags: "",
+    tags: [],
   });
   const [imageMode, setImageMode] = useState("url");
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
   const [previewError, setPreviewError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const [tagsLoading, setTagsLoading] = useState(false);
+  const [tagsFetchError, setTagsFetchError] = useState("");
+  const [tagsDropdownOpen, setTagsDropdownOpen] = useState(false);
+  const tagsDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const controller = new AbortController();
 
     async function loadPost() {
       try {
-        const response = await fetch(`${API_URL}/api/posts/${postId}`, {
+        const response = await api.get(`/posts/${postId}`, {
           signal: controller.signal,
         });
-        const result = await response.json();
+        const result = response.data;
 
-        if (!response.ok || !result.success) {
+        if (!result.success) {
           throw new Error(result.message || "Cannot load post");
         }
 
@@ -176,12 +188,12 @@ export default function EditPostPage() {
           imageUrl: mediaUrl.startsWith("data:") ? "" : mediaUrl,
           uploadedMedia: mediaUrl.startsWith("data:") ? mediaUrl : "",
           uploadedMediaType: mediaType,
-          tags: post.tags?.join(", ") || "",
+          tags: post.tags || [],
         });
         setImageMode(mediaUrl.startsWith("data:") ? "upload" : "url");
         setStatus("ready");
       } catch (requestError) {
-        if (!isAbortError(requestError)) {
+        if (!controller.signal.aborted && !isAbortError(requestError)) {
           setError(getErrorMessage(requestError));
           setStatus("error");
         }
@@ -191,6 +203,53 @@ export default function EditPostPage() {
     if (postId) loadPost();
     return () => controller.abort();
   }, [postId]);
+
+  const fetchCategories = useCallback(async () => {
+    try {
+      setTagsLoading(true);
+      setTagsFetchError("");
+
+      const response = await api.get("/posts/categories");
+      setCategories(response.data.categories || []);
+    } catch (requestError) {
+      setTagsFetchError(getErrorMessage(requestError));
+    } finally {
+      setTagsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchCategories();
+    }
+  }, [fetchCategories, isAuthenticated]);
+
+  useEffect(() => {
+    if (!tagsDropdownOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (
+        tagsDropdownRef.current &&
+        !tagsDropdownRef.current.contains(event.target as Node)
+      ) {
+        setTagsDropdownOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setTagsDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [tagsDropdownOpen]);
 
   const urlMedia = useMemo(
     () => getUsableMediaUrl(form.imageUrl),
@@ -207,11 +266,42 @@ export default function EditPostPage() {
       : getMediaType(previewMedia);
   const hasUnsupportedMediaUrl =
     imageMode === "url" && form.imageUrl.trim() && !urlMedia;
+  const tagsDropdownDisabled =
+    tagsLoading || Boolean(tagsFetchError) || categories.length === 0;
+  const selectedTagsText = form.tags.length
+    ? `${form.tags.length} tag${form.tags.length > 1 ? "s" : ""} selected`
+    : "Select tags";
 
-  const updateField = (field: keyof PostForm, value: string) => {
+  const updateField = (field: Exclude<keyof PostForm, "tags">, value: string) => {
     if (field === "imageUrl") setPreviewError(false);
     setForm((current) => ({ ...current, [field]: value }));
   };
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const removeSelectedTag = useCallback((tagToRemove: string) => {
+    setForm((current) => ({
+      ...current,
+      tags: current.tags.filter((tag) => tag !== tagToRemove),
+    }));
+  }, []);
+
+  const toggleSelectedTag = useCallback((tagName: string) => {
+    setError("");
+
+    setForm((current) => {
+      const isSelected = current.tags.includes(tagName);
+
+      return {
+        ...current,
+        tags: isSelected
+          ? current.tags.filter((tag) => tag !== tagName)
+          : [...current.tags, tagName],
+      };
+    });
+  }, []);
 
   const handleMediaUpload = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -277,9 +367,14 @@ export default function EditPostPage() {
       return;
     }
     const tags = form.tags
-      .split(",")
       .map((tag) => tag.trim())
       .filter(Boolean);
+
+    if (!tags.length) {
+      setError("Please choose at least one tag.");
+      setIsSubmitting(false);
+      return;
+    }
 
     const media = mediaValue ? [{ url: mediaValue, type: mediaType }] : [];
 
@@ -450,17 +545,71 @@ export default function EditPostPage() {
                   )}
                 </div>
 
-                <label>
+                <div className="tag-field">
                   <span>Tags</span>
-                  <input
-                    onChange={(event) =>
-                      updateField("tags", event.target.value)
-                    }
-                    placeholder="UI/UX, Branding, Mobile"
-                    type="text"
-                    value={form.tags}
-                  />
-                </label>
+                  <div className="tag-dropdown" ref={tagsDropdownRef}>
+                    <button
+                      aria-expanded={tagsDropdownOpen}
+                      className={`tag-dropdown-trigger ${
+                        tagsDropdownOpen ? "open" : ""
+                      }`}
+                      disabled={tagsDropdownDisabled}
+                      onClick={() =>
+                        setTagsDropdownOpen((current) => !current)
+                      }
+                      type="button"
+                    >
+                      <span>{selectedTagsText}</span>
+                      <FiChevronDown />
+                    </button>
+
+                    <div
+                      className={`tag-dropdown-menu ${
+                        tagsDropdownOpen ? "open" : ""
+                      }`}
+                    >
+                      {categories.map((category) => {
+                        const isSelected = form.tags.includes(category.name);
+
+                        return (
+                          <button
+                            className={isSelected ? "selected" : ""}
+                            key={category._id}
+                            onClick={() => toggleSelectedTag(category.name)}
+                            type="button"
+                          >
+                            <span>{category.name}</span>
+                            {isSelected && <FiCheck />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <small className="tag-select-help">
+                    {tagsLoading
+                      ? "Loading tags..."
+                      : tagsFetchError
+                      ? `Could not load tags: ${tagsFetchError}`
+                      : categories.length
+                      ? "Choose one or more tags."
+                      : "No tags are available yet."}
+                  </small>
+                  {form.tags.length > 0 && (
+                    <div className="selected-tags">
+                      {form.tags.map((tag) => (
+                        <button
+                          aria-label={`Remove ${tag}`}
+                          key={tag}
+                          onClick={() => removeSelectedTag(tag)}
+                          type="button"
+                        >
+                          {tag}
+                          <FiX />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
                 {error && <p className="form-error">{error}</p>}
 
@@ -505,9 +654,6 @@ export default function EditPostPage() {
                   </p>
                   <div>
                     {form.tags
-                      .split(",")
-                      .map((tag) => tag.trim())
-                      .filter(Boolean)
                       .slice(0, 4)
                       .map((tag) => (
                         <span className="tag" key={tag}>

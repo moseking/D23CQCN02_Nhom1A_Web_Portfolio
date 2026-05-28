@@ -4,6 +4,7 @@ const { protect } = require("../middleware/authMiddleware");
 
 const {
   getPosts,
+  getPostCategories,
   getPostById,
   createPost,
   updatePost,
@@ -29,6 +30,8 @@ router
   .post(protect, upload.array("media", 5), createPost);
 
 router.get("/saved", protect, getSavedPosts);
+
+router.get("/categories", getPostCategories);
 
 router
   .route("/:postId/comments")

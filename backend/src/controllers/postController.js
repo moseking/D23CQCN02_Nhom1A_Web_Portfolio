@@ -42,13 +42,16 @@ const getPosts = async (req, res, next) => {
     const filter = buildPostFilter(req.query);
 
     const [posts, total] = await Promise.all([
-      Post.find(filter)
+      Post.find({
+        ...filter,
+        visible: true,
+      })
         .populate("author", "username avatar bio")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .lean(),
-      Post.countDocuments(filter),
+      Post.countDocuments({...filter, visible: true,}),
     ]);
 
     res.json({
@@ -60,6 +63,50 @@ const getPosts = async (req, res, next) => {
         total,
         totalPages: Math.ceil(total / limit),
       },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const toCategorySlug = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+const getPostCategories = async (req, res, next) => {
+  try {
+    const tags = await Post.aggregate([
+      {
+        $unwind: "$tags",
+      },
+      {
+        $group: {
+          _id: "$tags",
+          postsCount: {
+            $sum: 1,
+          },
+        },
+      },
+      {
+        $sort: {
+          _id: 1,
+        },
+      },
+    ]);
+
+    const categories = tags.map((tag) => ({
+      _id: toCategorySlug(tag._id),
+      name: tag._id,
+      slug: toCategorySlug(tag._id),
+      postsCount: tag.postsCount,
+    }));
+
+    res.json({
+      success: true,
+      categories,
     });
   } catch (error) {
     next(error);
@@ -511,6 +558,7 @@ const getSavedPosts = async (req, res, next) => {
 
 module.exports = {
   getPosts,
+  getPostCategories,
   getPostById,
   createPost,
   updatePost,

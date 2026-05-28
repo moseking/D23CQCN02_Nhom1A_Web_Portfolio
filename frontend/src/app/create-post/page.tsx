@@ -5,23 +5,27 @@
 import {
   type ChangeEvent,
   type FormEvent,
+  useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
   FiAlertCircle,
   FiArrowLeft,
+  FiCheck,
+  FiChevronDown,
   FiImage,
   FiLink,
   FiSend,
   FiStar,
   FiUpload,
+  FiX,
 } from "react-icons/fi";
 import { api } from "../../lib/axios";
 import { useAuthStore } from "../../store/authStore";
 
-const FALLBACK_AUTHOR = "nhuquynh";
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 const DEFAULT_PREVIEW =
   "https://images.unsplash.com/photo-1541701494587-cb58502866ab?auto=format&fit=crop&w=1200&q=80";
@@ -36,44 +40,26 @@ type PostForm = {
   uploadedMediaPreview: string;
   uploadedMediaFile: File | null;
   uploadedMediaType: MediaType;
-  tags: string;
+  tags: string[];
+};
+
+type CategoryOption = {
+  _id: string;
+  name: string;
+  slug?: string;
+  postsCount?: number;
 };
 
 const initialForm: PostForm = {
   title: "",
   content: "",
-  authorName: FALLBACK_AUTHOR,
+  authorName: "",
   imageUrl: "",
   uploadedMediaPreview: "",
   uploadedMediaFile: null,
   uploadedMediaType: "image",
-  tags: "UI/UX, Portfolio",
+  tags: [],
 };
-
-function getCurrentUsername() {
-  if (typeof window === "undefined") return FALLBACK_AUTHOR;
-
-  const rawUser =
-    localStorage.getItem("currentUser") ||
-    localStorage.getItem("user") ||
-    localStorage.getItem("account");
-
-  if (rawUser) {
-    try {
-      const parsedUser = JSON.parse(rawUser);
-      return (
-        parsedUser.username ||
-        parsedUser.name ||
-        parsedUser.fullName ||
-        FALLBACK_AUTHOR
-      );
-    } catch {
-      return rawUser;
-    }
-  }
-
-  return localStorage.getItem("username") || FALLBACK_AUTHOR;
-}
 
 function getErrorMessage(error: unknown) {
   const requestError = error as {
@@ -165,24 +151,72 @@ function getUsableMediaUrl(value: string) {
 }
 
 export default function CreatePostPage() {
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, user } = useAuthStore();
   const [mounted, setMounted] = useState(false);
   const [form, setForm] = useState(initialForm);
   const [imageMode, setImageMode] = useState("url");
   const [error, setError] = useState("");
   const [previewError, setPreviewError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const [tagsLoading, setTagsLoading] = useState(false);
+  const [tagsFetchError, setTagsFetchError] = useState("");
+  const [tagsDropdownOpen, setTagsDropdownOpen] = useState(false);
+  const tagsDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setForm((current) => ({
       ...current,
-      authorName: getCurrentUsername(),
+      authorName: user?.username || "",
     }));
+  }, [user?.username]);
+
+  const fetchCategories = useCallback(async () => {
+    try {
+      setTagsLoading(true);
+      setTagsFetchError("");
+
+      const response = await api.get("/posts/categories");
+      setCategories(response.data.categories || []);
+    } catch (requestError) {
+      setTagsFetchError(getErrorMessage(requestError));
+    } finally {
+      setTagsLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchCategories();
+    }
+  }, [fetchCategories, isAuthenticated]);
+
+  useEffect(() => {
+    if (!tagsDropdownOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (
+        tagsDropdownRef.current &&
+        !tagsDropdownRef.current.contains(event.target as Node)
+      ) {
+        setTagsDropdownOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setTagsDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [tagsDropdownOpen]);
 
   const urlMedia = useMemo(
     () => getUsableMediaUrl(form.imageUrl),
@@ -205,9 +239,14 @@ export default function CreatePostPage() {
       : getMediaType(previewMedia);
   const hasUnsupportedMediaUrl =
     imageMode === "url" && form.imageUrl.trim() && !urlMedia;
+  const tagsDropdownDisabled =
+    tagsLoading || Boolean(tagsFetchError) || categories.length === 0;
+  const selectedTagsText = form.tags.length
+    ? `${form.tags.length} tag${form.tags.length > 1 ? "s" : ""} selected`
+    : "Select tags";
 
   const updateField = (
-    field: Exclude<keyof PostForm, "uploadedMediaFile">,
+    field: Exclude<keyof PostForm, "uploadedMediaFile" | "tags">,
     value: string
   ) => {
     if (field === "imageUrl") {
@@ -216,6 +255,28 @@ export default function CreatePostPage() {
 
     setForm((current) => ({ ...current, [field]: value }));
   };
+
+  const removeSelectedTag = useCallback((tagToRemove: string) => {
+    setForm((current) => ({
+      ...current,
+      tags: current.tags.filter((tag) => tag !== tagToRemove),
+    }));
+  }, []);
+
+  const toggleSelectedTag = useCallback((tagName: string) => {
+    setError("");
+
+    setForm((current) => {
+      const isSelected = current.tags.includes(tagName);
+
+      return {
+        ...current,
+        tags: isSelected
+          ? current.tags.filter((tag) => tag !== tagName)
+          : [...current.tags, tagName],
+      };
+    });
+  }, []);
 
   const handleMediaUpload = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -260,12 +321,16 @@ export default function CreatePostPage() {
       return;
     }
 
-    setIsSubmitting(true);
-
     const tags = form.tags
-      .split(",")
       .map((tag) => tag.trim())
       .filter(Boolean);
+
+    if (!tags.length) {
+      setError("Please choose at least one tag.");
+      return;
+    }
+
+    setIsSubmitting(true);
 
     try {
       const formData = new FormData();
@@ -305,6 +370,10 @@ export default function CreatePostPage() {
       setIsSubmitting(false);
     }
   };
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   if (!mounted) return null;
 
@@ -370,7 +439,7 @@ export default function CreatePostPage() {
                     onChange={(event) =>
                       updateField("authorName", event.target.value)
                     }
-                    placeholder={FALLBACK_AUTHOR}
+                    placeholder={user?.username || "Your username"}
                     required
                     type="text"
                     value={form.authorName}
@@ -453,15 +522,71 @@ export default function CreatePostPage() {
                 )}
               </div>
 
-              <label>
+              <div className="tag-field">
                 <span>Tags</span>
-                <input
-                  onChange={(event) => updateField("tags", event.target.value)}
-                  placeholder="UI/UX, Branding, Mobile"
-                  type="text"
-                  value={form.tags}
-                />
-              </label>
+                <div className="tag-dropdown" ref={tagsDropdownRef}>
+                  <button
+                    aria-expanded={tagsDropdownOpen}
+                    className={`tag-dropdown-trigger ${
+                      tagsDropdownOpen ? "open" : ""
+                    }`}
+                    disabled={tagsDropdownDisabled}
+                    onClick={() =>
+                      setTagsDropdownOpen((current) => !current)
+                    }
+                    type="button"
+                  >
+                    <span>{selectedTagsText}</span>
+                    <FiChevronDown />
+                  </button>
+
+                  <div
+                    className={`tag-dropdown-menu ${
+                      tagsDropdownOpen ? "open" : ""
+                    }`}
+                  >
+                    {categories.map((category) => {
+                      const isSelected = form.tags.includes(category.name);
+
+                      return (
+                        <button
+                          className={isSelected ? "selected" : ""}
+                          key={category._id}
+                          onClick={() => toggleSelectedTag(category.name)}
+                          type="button"
+                        >
+                          <span>{category.name}</span>
+                          {isSelected && <FiCheck />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <small className="tag-select-help">
+                  {tagsLoading
+                    ? "Loading tags..."
+                    : tagsFetchError
+                    ? `Could not load tags: ${tagsFetchError}`
+                    : categories.length
+                    ? "Choose one or more tags."
+                    : "No tags are available yet."}
+                </small>
+                {form.tags.length > 0 && (
+                  <div className="selected-tags">
+                    {form.tags.map((tag) => (
+                      <button
+                        aria-label={`Remove ${tag}`}
+                        key={tag}
+                        onClick={() => removeSelectedTag(tag)}
+                        type="button"
+                      >
+                        {tag}
+                        <FiX />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               {error && <p className="form-error">{error}</p>}
 
@@ -499,7 +624,7 @@ export default function CreatePostPage() {
             </div>
             <div className="preview-body">
               <p className="preview-author">
-                {form.authorName || FALLBACK_AUTHOR}
+                {form.authorName || user?.username || "Your username"}
               </p>
               <h2>{form.title || "Your post title appears here"}</h2>
               <p>
@@ -508,9 +633,6 @@ export default function CreatePostPage() {
               </p>
               <div>
                 {form.tags
-                  .split(",")
-                  .map((tag) => tag.trim())
-                  .filter(Boolean)
                   .slice(0, 4)
                   .map((tag) => (
                     <span className="tag" key={tag}>

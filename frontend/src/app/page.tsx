@@ -7,6 +7,7 @@ import {
   type Dispatch,
   type FormEvent,
   type SetStateAction,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -29,7 +30,6 @@ import {
   FiUserCheck,
   FiUserPlus,
   FiX,
-  FiTag,
   FiCalendar,
   FiGrid,
 } from "react-icons/fi";
@@ -39,18 +39,6 @@ import { api } from "../lib/axios";
 import { socket } from "../lib/socket";
 import { createPortal } from "react-dom";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
-
-const categories = [
-  "All",
-  "UI/UX",
-  "Branding",
-  "Illustration",
-  "Photography",
-  "3D",
-  "Motion",
-];
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
 const DEFAULT_POST_IMAGE =
   "https://images.unsplash.com/photo-1518005020951-eccb494ad742?auto=format&fit=crop&w=1200&q=80";
@@ -175,11 +163,6 @@ function isAbortError(error: unknown) {
   return error instanceof DOMException && error.name === "AbortError";
 }
 
-function getCurrentUserName() {
-  if (typeof window === "undefined") return "nhuquynh";
-  return localStorage.getItem("username") || "nhuquynh";
-}
-
 const SPECIAL_TAGS: Record<string, string> = {
   "ui/ux": "UI/UX",
   ai: "AI",
@@ -233,81 +216,6 @@ function isVideoMedia(url?: string, type?: string) {
   );
 }
 
-const works: FeedWork[] = [
-  {
-    title: "Mobile Banking App - Modern UI Design",
-    author: "Trang",
-    avatar:
-      "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=160&q=80",
-    image:
-      "https://images.unsplash.com/photo-1551650975-87deedd944c3?auto=format&fit=crop&w=1200&q=80",
-    tags: ["UI/UX", "Mobile", "Fintech"],
-    likes: "2.4K",
-    span: "wide",
-  },
-  {
-    title: "Colorful Abstract Brand Identity",
-    author: "An",
-    avatar:
-      "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=160&q=80",
-    image:
-      "https://images.unsplash.com/photo-1541701494587-cb58502866ab?auto=format&fit=crop&w=1200&q=80",
-    tags: ["Branding", "Abstract", "Colorful"],
-    likes: "4.8K",
-    span: "tall",
-  },
-  {
-    title: "Health & Fitness Mobile Interface",
-    author: "Minh",
-    avatar:
-      "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=160&q=80",
-    image:
-      "https://images.unsplash.com/photo-1512941937669-90a1b58e7e9c?auto=format&fit=crop&w=1200&q=80",
-    tags: ["Health", "Mobile", "UI/UX"],
-    likes: "1.8K",
-  },
-  {
-    title: "Dark Modern Dashboard Design",
-    author: "Vy",
-    avatar:
-      "https://images.unsplash.com/photo-1509967419530-da38b4704bc6?auto=format&fit=crop&w=160&q=80",
-    image:
-      "https://images.unsplash.com/photo-1558655146-d09347e92766?auto=format&fit=crop&w=1200&q=80",
-    tags: ["Dashboard", "Dark Mode", "Web"],
-    likes: "3.1K",
-  },
-  {
-    title: "Educational Platform - Learning App",
-    author: "Linh",
-    avatar:
-      "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=160&q=80",
-    image:
-      "https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=1200&q=80",
-    tags: ["Education", "UI/UX", "Mobile"],
-    likes: "2.9K",
-  },
-  {
-    title: "Birthday Branding - Colorful Design",
-    author: "Huy",
-    avatar:
-      "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=160&q=80",
-    image:
-      "https://images.unsplash.com/photo-1516542076529-1ea3854896f2?auto=format&fit=crop&w=1200&q=80",
-    tags: ["Branding", "Print", "Colorful"],
-    likes: "5.7K",
-  },
-  {
-    title: "Motion Poster Series",
-    author: "Mai",
-    avatar:
-      "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80",
-    image:
-      "https://images.unsplash.com/photo-1618005198919-d3d4b5a92ead?auto=format&fit=crop&w=1200&q=80",
-    tags: ["Motion", "Poster", "3D"],
-    likes: "2.2K",
-  },
-];
-
 export default function Home() {
   const authUser = useAuthStore((state) => state.user);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -323,39 +231,37 @@ export default function Home() {
   const [apiWorks, setApiWorks] = useState<FeedWork[]>([]);
   const [creators, setCreators] = useState<Creator[]>([]);
   const [feedStatus, setFeedStatus] = useState("loading");
-  const [currentUserName, setCurrentUserName] = useState("");
   const [previewPost, setPreviewPost] = useState<ModalPost | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
 
-  const mapPostToWork = (post: ApiPost): FeedWork => ({
-    id: post._id,
-    authorId: post.author?._id || post.author?.id || post.authorId,
-    title: post.title || post.caption || "Untitled Post",
-    author: post.authorName || post.author?.username || "Creator",
-    avatar: post.author?.avatar || DEFAULT_AVATAR,
-    image: post.media?.[0]?.url || post.image || DEFAULT_POST_IMAGE,
-    mediaType: isVideoMedia(
-      post.media?.[0]?.url || post.image,
-      post.media?.[0]?.type
-    )
-      ? "video"
-      : "image",
-    tags: post.tags?.length ? post.tags : ["Portfolio"],
-    likes: post.likedBy?.length || post.likes?.length || 0,
-    liked: post.likedBy?.includes(currentUserName.toLowerCase()) || false,
-    saves: post.savedBy?.length || 0,
-    saved: post.savedBy?.includes(currentUserName.toLowerCase()) || false,
-    content: post.content || post.caption || "",
-    isNew: true,
-    comments: [],
-  });
+  const currentUserName = isAuthenticated ? authUser?.username || "" : "";
 
-  useEffect(() => {
-    setCurrentUserName(
-      isAuthenticated ? authUser?.username || getCurrentUserName() : ""
-    );
-  }, [authUser?.username, isAuthenticated]);
+  const mapPostToWork = useCallback(
+    (post: ApiPost): FeedWork => ({
+      id: post._id,
+      authorId: post.author?._id || post.author?.id || post.authorId,
+      title: post.title || post.caption || "Untitled Post",
+      author: post.authorName || post.author?.username || "Creator",
+      avatar: post.author?.avatar || DEFAULT_AVATAR,
+      image: post.media?.[0]?.url || post.image || DEFAULT_POST_IMAGE,
+      mediaType: isVideoMedia(
+        post.media?.[0]?.url || post.image,
+        post.media?.[0]?.type
+      )
+        ? "video"
+        : "image",
+      tags: post.tags?.length ? post.tags : ["Portfolio"],
+      likes: post.likedBy?.length || post.likes?.length || 0,
+      liked: post.likedBy?.includes(currentUserName.toLowerCase()) || false,
+      saves: post.savedBy?.length || 0,
+      saved: post.savedBy?.includes(currentUserName.toLowerCase()) || false,
+      content: post.content || post.caption || "",
+      isNew: true,
+      comments: [],
+    }),
+    [currentUserName]
+  );
 
   useEffect(() => {
     return () => {
@@ -578,35 +484,34 @@ export default function Home() {
 
     async function loadPosts() {
       try {
-        const response = await fetch(`${API_URL}/api/posts?limit=20`, {
+        const response = await api.get("/posts", {
+          params: {
+            limit: 20,
+          },
           signal: controller.signal,
         });
 
-        const result = await response.json();
-
-        if (!response.ok || !result.success) {
-          throw new Error(result.message || "Cannot load posts");
+        if (!response.data?.success) {
+          throw new Error(response.data?.message || "Cannot load posts");
         }
 
-        const posts = (result.data as ApiPost[]).map(mapPostToWork);
+        const posts = (response.data.data as ApiPost[]).map(mapPostToWork);
 
         const postsWithComments = await Promise.all(
           posts.map(async (post) => {
             try {
-              const commentResponse = await fetch(
-                `${API_URL}/api/posts/${post.id}/comments`,
+              const commentResponse = await api.get(
+                `/posts/${post.id}/comments`,
                 {
                   signal: controller.signal,
                 }
               );
 
-              const commentResult = await commentResponse.json();
-
               return {
                 ...post,
                 comments:
-                  commentResponse.ok && commentResult.success
-                    ? (commentResult.data as ApiComment[]).map((comment) => ({
+                  commentResponse.data?.success
+                    ? (commentResponse.data.data as ApiComment[]).map((comment) => ({
                         id: comment._id,
                         authorName: comment.authorName,
                         content: comment.content,
@@ -669,9 +574,8 @@ export default function Home() {
 
   const filteredWorks = useMemo(() => {
     const keyword = query.trim().toLowerCase();
-    const allWorks = [...apiWorks, ...works];
 
-    return allWorks.filter((work) => {
+    return apiWorks.filter((work) => {
       const tags = work.tags || [];
 
       const matchesCategory =
@@ -688,7 +592,21 @@ export default function Home() {
 
       return matchesCategory && matchesSearch;
     });
-  }, [activeCategory, apiWorks, works, query]);
+  }, [activeCategory, apiWorks, query]);
+
+  const categories = useMemo(() => {
+    const tagLabels = apiWorks.flatMap((work) => work.tags || []);
+    return ["All", ...Array.from(new Set(tagLabels)).sort()];
+  }, [apiWorks]);
+
+  const heroStats = useMemo(
+    () => ({
+      creators: creators.length,
+      projects: apiWorks.length,
+      tags: Math.max(categories.length - 1, 0),
+    }),
+    [apiWorks.length, categories.length, creators.length]
+  );
 
   const visibleWorks = filteredWorks.slice(0, visibleCount);
 
@@ -787,10 +705,6 @@ export default function Home() {
       pauseInfiniteScrollRef.current = false;
       setPauseInfiniteScroll(false);
     }, 1800);
-  };
-
-  const handleSelectSearchSuggestion = () => {
-    scrollToWorks();
   };
 
   const addCommentToPost = (postId: string, comment: CommentItem) => {
@@ -910,10 +824,9 @@ export default function Home() {
         searchSuggestions={searchSuggestions}
         scrollToWorks={scrollToWorks}
         scrollToCreators={scrollToCreators}
-        handleSelectSearchSuggestion={handleSelectSearchSuggestion}
         openPostPreview={openPostPreview}
       />
-      <Hero scrollToWorks={scrollToWorks} />
+      <Hero scrollToWorks={scrollToWorks} stats={heroStats} />
 
       <section
         id="works-section"
@@ -984,7 +897,7 @@ export default function Home() {
 
         {feedStatus === "offline" && (
           <p className="mt-8 text-center text-sm font-semibold text-[#8d6b3d]">
-            Backend is not reachable, showing sample portfolio works.
+            Backend is not reachable. Please try again later.
           </p>
         )}
 
@@ -1374,7 +1287,7 @@ function PostPreviewModal({
   const [isCommenting, setIsCommenting] = useState(false);
 
   const currentUserId = user?.id || user?._id || "";
-  const currentUserName = user?.username || getCurrentUserName();
+  const currentUserName = user?.username || "";
 
   useEffect(() => {
     setLocalPost(post);
@@ -2196,7 +2109,17 @@ function NotificationBell() {
   );
 }
 
-function Hero({ scrollToWorks }: { scrollToWorks: () => void }) {
+function Hero({
+  scrollToWorks,
+  stats,
+}: {
+  scrollToWorks: () => void;
+  stats: {
+    creators: number;
+    projects: number;
+    tags: number;
+  };
+}) {
   return (
     <section className="hero relative overflow-hidden border-b border-[#e0e3da] px-6 py-20 sm:px-10 lg:px-12 lg:py-28">
       <div className="hero-glow" />
@@ -2236,13 +2159,13 @@ function Hero({ scrollToWorks }: { scrollToWorks: () => void }) {
 
           <div className="stats mt-14">
             <span>
-              <strong>12,400+</strong> Creators
+              <strong>{stats.creators.toLocaleString()}</strong> Creators
             </span>
             <span>
-              <strong>48K+</strong> Projects
+              <strong>{stats.projects.toLocaleString()}</strong> Projects
             </span>
             <span>
-              <strong>180</strong> Countries
+              <strong>{stats.tags.toLocaleString()}</strong> Tags
             </span>
           </div>
         </div>
@@ -2541,11 +2464,6 @@ function WorkCard({
   );
 }
 
-function getCurrentCommentAuthor() {
-  if (typeof window === "undefined") return "nhuquynh";
-  return localStorage.getItem("username") || "nhuquynh";
-}
-
 function CommentSection({
   work,
   onCommentCreated,
@@ -2557,7 +2475,7 @@ function CommentSection({
 }) {
   const { user, isAuthenticated } = useAuthStore();
   const [content, setContent] = useState("");
-  const [authorName, setAuthorName] = useState("nhuquynh");
+  const [authorName, setAuthorName] = useState("");
   const [isOpen, setIsOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -2566,7 +2484,7 @@ function CommentSection({
   const comments = work.comments || [];
 
   useEffect(() => {
-    setAuthorName(user?.username || getCurrentCommentAuthor());
+    setAuthorName(user?.username || "");
   }, [user?.username]);
 
   const submitComment = async (event: FormEvent<HTMLFormElement>) => {

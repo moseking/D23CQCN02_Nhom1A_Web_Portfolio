@@ -9,8 +9,7 @@ const createAdmin =
     try {
       const existingAdmin =
         await User.findOne({
-          email:
-            "admin@gmail.com",
+          role: "admin",
         });
 
       if (existingAdmin) {

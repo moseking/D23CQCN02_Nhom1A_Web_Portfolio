@@ -985,6 +985,17 @@ const toggleFollowUser = async (req, res) => {
 
     await Promise.all([targetUser.save(), currentUser.save()]);
 
+    const io = req.app.get("io");
+
+    if (io) {
+      io.emit("new_follow_realtime", {
+        targetUserId: targetUser._id.toString(),
+        currentUserId: currentUser._id.toString(),
+        followersCount: targetUser.followers.length,
+        followed: !hasFollowed,
+      });
+    }
+
     res.json({
       success: true,
       data: {

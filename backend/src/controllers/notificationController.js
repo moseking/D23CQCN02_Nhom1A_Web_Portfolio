@@ -2,7 +2,7 @@ const Notification = require("../models/Notification");
 
 exports.getNotifications = async (req, res) => {
   try {
-    const userId = req.user?._id || req.user?.id;
+    const userId = req.user?.userId || req.user?._id || req.user?.id;
 
     const notifications = await Notification.find({
       receiver: userId,
@@ -26,7 +26,7 @@ exports.getNotifications = async (req, res) => {
 
 exports.markAsRead = async (req, res) => {
   try {
-    const userId = req.user?._id || req.user?.id;
+    const userId = req.user?.userId || req.user?._id || req.user?.id;
 
     const notification = await Notification.findOneAndUpdate(
       {
@@ -59,7 +59,7 @@ exports.markAsRead = async (req, res) => {
 
 exports.markAllAsRead = async (req, res) => {
   try {
-    const userId = req.user?._id || req.user?.id;
+    const userId = req.user?.userId || req.user?._id || req.user?.id;
 
     await Notification.updateMany(
       { receiver: userId, isRead: false },

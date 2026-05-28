@@ -9,6 +9,7 @@ import {
   type SetStateAction,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -27,11 +28,17 @@ import {
   FiUser,
   FiUserCheck,
   FiUserPlus,
+  FiX,
+  FiTag,
+  FiCalendar,
+  FiGrid,
 } from "react-icons/fi";
 
 import { useAuthStore } from "../store/authStore";
 import { api } from "../lib/axios";
 import { socket } from "../lib/socket";
+import { createPortal } from "react-dom";
+import LoadingSkeleton from "@/components/LoadingSkeleton";
 
 const categories = [
   "All",
@@ -42,7 +49,6 @@ const categories = [
   "3D",
   "Motion",
 ];
-
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
@@ -66,7 +72,7 @@ type FeedWork = {
   author: string;
   avatar: string;
   image: string;
-  mediaType?: "image" | "video";
+  mediaType?: string;
   tags: string[];
   likes: string | number;
   span?: string;
@@ -174,6 +180,59 @@ function getCurrentUserName() {
   return localStorage.getItem("username") || "nhuquynh";
 }
 
+const SPECIAL_TAGS: Record<string, string> = {
+  "ui/ux": "UI/UX",
+  ai: "AI",
+  "3d": "3D",
+};
+
+function formatTagLabel(tag: string) {
+  const cleanTag = String(tag).trim().replace(/\s+/g, " ");
+  const lowerTag = cleanTag.toLowerCase();
+
+  if (SPECIAL_TAGS[lowerTag]) {
+    return SPECIAL_TAGS[lowerTag];
+  }
+
+  return cleanTag
+    .split(" ")
+    .map((word) => {
+      const lowerWord = word.toLowerCase();
+
+      if (SPECIAL_TAGS[lowerWord]) {
+        return SPECIAL_TAGS[lowerWord];
+      }
+
+      if (word.includes("/")) {
+        return word
+          .split("/")
+          .map((part) => {
+            const lowerPart = part.toLowerCase();
+
+            if (SPECIAL_TAGS[lowerPart]) {
+              return SPECIAL_TAGS[lowerPart];
+            }
+
+            return part
+              ? part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
+              : "";
+          })
+          .join("/");
+      }
+
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(" ");
+}
+
+function isVideoMedia(url?: string, type?: string) {
+  return (
+    type?.includes("video") ||
+    url?.includes("/video/upload/") ||
+    Boolean(url?.match(/\.(mp4|webm|ogg|mov)$/i))
+  );
+}
+
 const works: FeedWork[] = [
   {
     title: "Mobile Banking App - Modern UI Design",
@@ -255,18 +314,264 @@ export default function Home() {
   const [activeCategory, setActiveCategory] = useState("All");
   const [query, setQuery] = useState("");
   const [visibleCount, setVisibleCount] = useState(6);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const [pauseInfiniteScroll, setPauseInfiniteScroll] = useState(false);
+  const pauseInfiniteScrollRef = useRef(false);
+  const resumeInfiniteScrollTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const [apiWorks, setApiWorks] = useState<FeedWork[]>([]);
   const [creators, setCreators] = useState<Creator[]>([]);
   const [feedStatus, setFeedStatus] = useState("loading");
   const [currentUserName, setCurrentUserName] = useState("");
+  const [previewPost, setPreviewPost] = useState<ModalPost | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  const mapPostToWork = (post: ApiPost): FeedWork => ({
+    id: post._id,
+    authorId: post.author?._id || post.author?.id || post.authorId,
+    title: post.title || post.caption || "Untitled Post",
+    author: post.authorName || post.author?.username || "Creator",
+    avatar: post.author?.avatar || DEFAULT_AVATAR,
+    image: post.media?.[0]?.url || post.image || DEFAULT_POST_IMAGE,
+    mediaType: isVideoMedia(
+      post.media?.[0]?.url || post.image,
+      post.media?.[0]?.type
+    )
+      ? "video"
+      : "image",
+    tags: post.tags?.length ? post.tags : ["Portfolio"],
+    likes: post.likedBy?.length || post.likes?.length || 0,
+    liked: post.likedBy?.includes(currentUserName.toLowerCase()) || false,
+    saves: post.savedBy?.length || 0,
+    saved: post.savedBy?.includes(currentUserName.toLowerCase()) || false,
+    content: post.content || post.caption || "",
+    isNew: true,
+    comments: [],
+  });
 
   useEffect(() => {
     setCurrentUserName(
-      isAuthenticated
-        ? authUser?.username || getCurrentUserName()
-        : ""
+      isAuthenticated ? authUser?.username || getCurrentUserName() : ""
     );
   }, [authUser?.username, isAuthenticated]);
+
+  useEffect(() => {
+    return () => {
+      if (resumeInfiniteScrollTimerRef.current) {
+        clearTimeout(resumeInfiniteScrollTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const handlePostUpdated = (payload: { post: ApiPost }) => {
+      const updatedWork = mapPostToWork(payload.post);
+
+      setApiWorks((currentWorks) =>
+        currentWorks.map((work) =>
+          work.id === updatedWork.id
+            ? {
+                ...work,
+                ...updatedWork,
+                comments: work.comments || [],
+              }
+            : work
+        )
+      );
+    };
+
+    socket.on("post_updated", handlePostUpdated);
+
+    return () => {
+      socket.off("post_updated", handlePostUpdated);
+    };
+  }, [currentUserName]);
+
+  useEffect(() => {
+    const handleNewComment = (payload: {
+      postId: string;
+      comment: {
+        _id?: string;
+        id?: string;
+        content?: string;
+        authorName?: string;
+        author?: {
+          username?: string;
+          avatar?: string;
+        };
+        createdAt?: string;
+      };
+    }) => {
+      const normalizedComment: CommentItem = {
+        id: payload.comment._id || payload.comment.id || `${Date.now()}`,
+        authorName:
+          payload.comment.author?.username ||
+          payload.comment.authorName ||
+          "Unknown user",
+        content: payload.comment.content || "",
+        createdAt: payload.comment.createdAt,
+      };
+
+      setApiWorks((currentWorks) =>
+        currentWorks.map((work) => {
+          if (work.id !== payload.postId) return work;
+
+          const existed = work.comments?.some(
+            (comment) => comment.id === normalizedComment.id
+          );
+
+          if (existed) return work;
+
+          return {
+            ...work,
+            comments: [normalizedComment, ...(work.comments || [])],
+          };
+        })
+      );
+    };
+
+    socket.on("new_comment", handleNewComment);
+
+    return () => {
+      socket.off("new_comment", handleNewComment);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleNewLike = (payload: {
+      postId: string;
+      likesCount: number;
+      likes?: string[];
+    }) => {
+      setApiWorks((currentWorks) =>
+        currentWorks.map((work) =>
+          work.id === payload.postId
+            ? {
+                ...work,
+                likes: payload.likesCount,
+              }
+            : work
+        )
+      );
+    };
+
+    socket.on("new_like", handleNewLike);
+
+    return () => {
+      socket.off("new_like", handleNewLike);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleCommentDeleted = (payload: {
+      postId: string;
+      commentId: string;
+    }) => {
+      setApiWorks((currentWorks) =>
+        currentWorks.map((work) =>
+          work.id === payload.postId
+            ? {
+                ...work,
+                comments: (work.comments || []).filter(
+                  (comment) => comment.id !== payload.commentId
+                ),
+              }
+            : work
+        )
+      );
+    };
+
+    socket.on("comment_deleted", handleCommentDeleted);
+
+    return () => {
+      socket.off("comment_deleted", handleCommentDeleted);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleNewSave = (payload: { postId: string; savesCount: number }) => {
+      setApiWorks((currentWorks) =>
+        currentWorks.map((work) =>
+          work.id === payload.postId
+            ? {
+                ...work,
+                saves: payload.savesCount,
+              }
+            : work
+        )
+      );
+    };
+
+    socket.on("new_save", handleNewSave);
+
+    return () => {
+      socket.off("new_save", handleNewSave);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleRealtimeFollow = (payload: {
+      targetUserId: string;
+      followersCount: number;
+      followed: boolean;
+    }) => {
+      setCreators((currentCreators) =>
+        currentCreators.map((creator) => {
+          if (creator.id !== payload.targetUserId) {
+            return creator;
+          }
+
+          return {
+            ...creator,
+            followersCount: payload.followersCount,
+            isFollowing: payload.followed,
+          };
+        })
+      );
+    };
+
+    socket.on("new_follow_realtime", handleRealtimeFollow);
+
+    return () => {
+      socket.off("new_follow_realtime", handleRealtimeFollow);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleNewPost = (payload: { post: ApiPost }) => {
+      const newWork = mapPostToWork(payload.post);
+
+      setApiWorks((currentWorks) => {
+        const existed = currentWorks.some((work) => work.id === newWork.id);
+
+        if (existed) return currentWorks;
+
+        return [newWork, ...currentWorks];
+      });
+    };
+
+    socket.on("new_post", handleNewPost);
+
+    return () => {
+      socket.off("new_post", handleNewPost);
+    };
+  }, [currentUserName]);
+
+  useEffect(() => {
+    const handlePostDeleted = (payload: { postId: string }) => {
+      setApiWorks((currentWorks) =>
+        currentWorks.filter((work) => work.id !== payload.postId)
+      );
+    };
+
+    socket.on("post_deleted", handlePostDeleted);
+
+    return () => {
+      socket.off("post_deleted", handlePostDeleted);
+    };
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -283,23 +588,7 @@ export default function Home() {
           throw new Error(result.message || "Cannot load posts");
         }
 
-        const posts = (result.data as ApiPost[]).map((post) => ({
-          id: post._id,
-          authorId: post.author?._id || post.author?.id || post.authorId,
-          title: post.title || post.caption || "Untitled Post",
-          author: post.authorName || post.author?.username || "Creator",
-          avatar: post.author?.avatar || DEFAULT_AVATAR,
-          image: post.media?.[0]?.url || post.image || DEFAULT_POST_IMAGE,
-          mediaType: post.media?.[0]?.type || "image",
-          tags: post.tags?.length ? post.tags : ["Portfolio"],
-          likes: post.likedBy?.length || post.likes?.length || 0,
-          liked: post.likedBy?.includes(currentUserName.toLowerCase()) || false,
-          saves: post.savedBy?.length || 0,
-          saved: post.savedBy?.includes(currentUserName.toLowerCase()) || false,
-          content: post.content || post.caption || "",
-          isNew: true,
-          comments: [],
-        }));
+        const posts = (result.data as ApiPost[]).map(mapPostToWork);
 
         const postsWithComments = await Promise.all(
           posts.map(async (post) => {
@@ -383,29 +672,156 @@ export default function Home() {
     const allWorks = [...apiWorks, ...works];
 
     return allWorks.filter((work) => {
+      const tags = work.tags || [];
+
       const matchesCategory =
         activeCategory === "All" ||
-        work.tags.some((tag) =>
+        tags.some((tag) =>
           tag.toLowerCase().includes(activeCategory.toLowerCase())
         );
 
       const matchesSearch =
         !keyword ||
-        [work.title, work.author, work.content || "", ...work.tags].some(
+        [work.title || "", work.author || "", work.content || "", ...tags].some(
           (item) => item.toLowerCase().includes(keyword)
         );
 
       return matchesCategory && matchesSearch;
     });
-  }, [activeCategory, apiWorks, query]);
+  }, [activeCategory, apiWorks, works, query]);
 
   const visibleWorks = filteredWorks.slice(0, visibleCount);
 
+  useEffect(() => {
+    if (pauseInfiniteScroll) return;
+
+    const target = loadMoreRef.current;
+
+    if (!target) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const firstEntry = entries[0];
+
+        if (!firstEntry.isIntersecting || pauseInfiniteScrollRef.current)
+          return;
+
+        setVisibleCount((current) => {
+          if (current >= filteredWorks.length) return current;
+          return Math.min(current + 3, filteredWorks.length);
+        });
+      },
+      {
+        root: null,
+        rootMargin: "0px",
+        threshold: 0.2,
+      }
+    );
+
+    observer.observe(target);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [filteredWorks.length, pauseInfiniteScroll]);
+
+  const searchSuggestions = useMemo(() => {
+    const keyword = query.trim().toLowerCase();
+
+    if (!keyword) {
+      return {
+        works: [],
+        creators: [],
+      };
+    }
+
+    const matchedWorks = filteredWorks.slice(0, 5);
+
+    const matchedCreators = creators
+      .filter((creator) =>
+        [creator.name || "", creator.role || ""].some((item) =>
+          item.toLowerCase().includes(keyword)
+        )
+      )
+      .slice(0, 4);
+
+    return {
+      works: matchedWorks,
+      creators: matchedCreators,
+    };
+  }, [query, filteredWorks, creators]);
+
+  const scrollToWorks = () => {
+    document.getElementById("works-section")?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  };
+
+  const scrollToCreators = () => {
+    pauseInfiniteScrollRef.current = true;
+    setPauseInfiniteScroll(true);
+
+    if (resumeInfiniteScrollTimerRef.current) {
+      clearTimeout(resumeInfiniteScrollTimerRef.current);
+    }
+
+    requestAnimationFrame(() => {
+      const creatorsSection = document.getElementById("creators");
+
+      if (!creatorsSection) return;
+
+      const headerOffset = 110;
+      const targetTop =
+        creatorsSection.getBoundingClientRect().top +
+        window.scrollY -
+        headerOffset;
+
+      window.scrollTo({
+        top: targetTop,
+        behavior: "smooth",
+      });
+    });
+
+    resumeInfiniteScrollTimerRef.current = setTimeout(() => {
+      pauseInfiniteScrollRef.current = false;
+      setPauseInfiniteScroll(false);
+    }, 1800);
+  };
+
+  const handleSelectSearchSuggestion = () => {
+    scrollToWorks();
+  };
+
   const addCommentToPost = (postId: string, comment: CommentItem) => {
+    setApiWorks((currentWorks) =>
+      currentWorks.map((work) => {
+        if (work.id !== postId) return work;
+
+        const existed = (work.comments || []).some(
+          (item) => item.id === comment.id
+        );
+
+        if (existed) return work;
+
+        return {
+          ...work,
+          comments: [comment, ...(work.comments || [])],
+        };
+      })
+    );
+  };
+
+  const deleteCommentFromPost = (postId: string, commentId: string) => {
     setApiWorks((currentWorks) =>
       currentWorks.map((work) =>
         work.id === postId
-          ? { ...work, comments: [comment, ...(work.comments || [])] }
+          ? {
+              ...work,
+              comments: (work.comments || []).filter(
+                (comment) => comment.id !== commentId
+              ),
+            }
           : work
       )
     );
@@ -451,14 +867,57 @@ export default function Home() {
     );
   };
 
+  const openPostPreview = async (postId?: string) => {
+    if (!postId) return;
+
+    setPreviewOpen(true);
+    setPreviewLoading(true);
+    setPreviewPost(null);
+
+    try {
+      const [postResponse, commentsResponse] = await Promise.all([
+        api.get(`/posts/${postId}`),
+        api.get(`/posts/${postId}/comments`),
+      ]);
+
+      const postData =
+        postResponse.data.data || postResponse.data.post || postResponse.data;
+
+      const commentsData = commentsResponse.data.data || [];
+
+      setPreviewPost({
+        ...postData,
+        comments: commentsData,
+        commentsCount: commentsData.length,
+      });
+    } catch (error) {
+      console.log("Open post preview error:", error);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const closePostPreview = () => {
+    setPreviewOpen(false);
+    setPreviewPost(null);
+  };
+
   return (
     <main className="min-h-screen bg-[#f7f8f3] text-[#252525]">
-      <Header query={query} setQuery={setQuery} />
-      <Hero />
+      <Header
+        query={query}
+        setQuery={setQuery}
+        searchSuggestions={searchSuggestions}
+        scrollToWorks={scrollToWorks}
+        scrollToCreators={scrollToCreators}
+        handleSelectSearchSuggestion={handleSelectSearchSuggestion}
+        openPostPreview={openPostPreview}
+      />
+      <Hero scrollToWorks={scrollToWorks} />
 
       <section
+        id="works-section"
         className="mx-auto max-w-[1840px] px-6 py-20 sm:px-10 lg:px-12"
-        id="explore"
       >
         <div className="reveal flex flex-col gap-5">
           <p className="eyebrow">Discover</p>
@@ -471,9 +930,13 @@ export default function Home() {
               </p>
             </div>
 
-            <a className="quiet-link" href="#creators">
+            <button
+              className="quiet-link"
+              onClick={scrollToCreators}
+              type="button"
+            >
               View trending creators <FiArrowRight />
-            </a>
+            </button>
           </div>
         </div>
 
@@ -495,19 +958,29 @@ export default function Home() {
           ))}
         </div>
 
-        <div className="feed-grid mt-12 grid grid-cols-1 gap-7 md:grid-cols-2 xl:grid-cols-3">
-          {visibleWorks.map((work, index) => (
-            <WorkCard
-              index={index}
-              key={work.id || work.title}
-              onCommentCreated={addCommentToPost}
-              onLikeUpdated={updatePostLike}
-              onSaveUpdated={updatePostSave}
-              onDeleted={removePostFromFeed}
-              work={work}
-            />
-          ))}
-        </div>
+        {feedStatus === "loading" ? (
+          <div className="mt-12">
+            <LoadingSkeleton />
+          </div>
+        ) : (
+          <div className="feed-grid mt-12 grid grid-cols-1 gap-7 md:grid-cols-2 xl:grid-cols-3">
+            {visibleWorks.map((work, index) => (
+              <WorkCard
+                key={work.id || work.title}
+                index={index}
+                onCommentCreated={addCommentToPost}
+                onCommentDeleted={deleteCommentFromPost}
+                onLikeUpdated={updatePostLike}
+                onSaveUpdated={updatePostSave}
+                onDeleted={removePostFromFeed}
+                onOpenPreview={openPostPreview}
+                work={work}
+              />
+            ))}
+          </div>
+        )}
+
+        <div ref={loadMoreRef} className="h-10" />
 
         {feedStatus === "offline" && (
           <p className="mt-8 text-center text-sm font-semibold text-[#8d6b3d]">
@@ -572,6 +1045,13 @@ export default function Home() {
         </div>
       </section>
 
+      <PostPreviewModal
+        open={previewOpen}
+        post={previewPost}
+        loading={previewLoading}
+        onClose={closePostPreview}
+      />
+
       <Footer />
     </main>
   );
@@ -580,17 +1060,26 @@ export default function Home() {
 function Header({
   query,
   setQuery,
+  searchSuggestions,
+  scrollToWorks,
+  scrollToCreators,
+  handleSelectSearchSuggestion,
+  openPostPreview,
 }: {
   query: string;
   setQuery: Dispatch<SetStateAction<string>>;
+  searchSuggestions: {
+    works: FeedWork[];
+    creators: Creator[];
+  };
+  scrollToWorks: () => void;
+  scrollToCreators: () => void;
+  handleSelectSearchSuggestion: () => void;
+  openPostPreview: (postId?: string) => void;
 }) {
   const [mounted, setMounted] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  const {
-    user,
-    isAuthenticated,
-    logout,
-  } = useAuthStore();
+  const { user, isAuthenticated, logout } = useAuthStore();
 
   useEffect(() => {
     setMounted(true);
@@ -616,26 +1105,133 @@ function Header({
         </a>
 
         <div className="hidden items-center gap-8 text-lg text-slate-500 lg:flex">
-          <a className="nav-link" href="#explore">
+          <a className="nav-link" href="#works-section">
             Explore
           </a>
-          <a className="nav-link" href="#creators">
+          <button className="nav-link" onClick={scrollToCreators} type="button">
             Trending
-          </a>
+          </button>
           <a className="nav-link" href="/create-post">
             Create Post
           </a>
         </div>
 
-        <label className="search-bar">
-          <FiSearch />
-          <input
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search for creative work..."
-            type="search"
-            value={query}
-          />
-        </label>
+        <div className="search-wrapper">
+          <label className="search-bar">
+            <FiSearch />
+            <input
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search for creative work..."
+              type="text"
+              value={query}
+            />
+
+            {query.trim() && (
+              <button
+                aria-label="Clear search"
+                onClick={() => setQuery("")}
+                type="button"
+              >
+                ×
+              </button>
+            )}
+          </label>
+
+          {query.trim() && (
+            <div className="search-dropdown">
+              <div className="search-dropdown-head">
+                <strong>Kết quả tìm kiếm</strong>
+                <button type="button" onClick={scrollToWorks}>
+                  Xem tất cả
+                </button>
+              </div>
+
+              {searchSuggestions.works.length === 0 &&
+              searchSuggestions.creators.length === 0 ? (
+                <p className="search-empty">Không tìm thấy kết quả phù hợp.</p>
+              ) : (
+                <>
+                  {searchSuggestions.works.length > 0 && (
+                    <div className="search-group">
+                      <span>Posts</span>
+
+                      {searchSuggestions.works.map((work) => (
+                        <button
+                          key={work.id || work.title}
+                          type="button"
+                          className="search-item"
+                          onClick={() => {
+                            setQuery("");
+                            openPostPreview(work.id);
+                          }}
+                          disabled={!work.id}
+                        >
+                          {work.image ? (
+                            work.mediaType === "video" ? (
+                              <video
+                                src={work.image}
+                                muted
+                                preload="metadata"
+                              />
+                            ) : (
+                              <img
+                                alt={work.title}
+                                src={work.image}
+                                loading="lazy"
+                                decoding="async"
+                              />
+                            )
+                          ) : (
+                            <div className="search-thumb-placeholder">
+                              {work.title.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+
+                          <div>
+                            <strong>{work.title}</strong>
+                            <p>{work.author}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {searchSuggestions.creators.length > 0 && (
+                    <div className="search-group">
+                      <span>Creators</span>
+
+                      {searchSuggestions.creators.map((creator) => (
+                        <a
+                          key={creator.id || creator.name}
+                          className="search-item"
+                          href={
+                            creator.id ? `/users/${creator.id}` : "#creators"
+                          }
+                        >
+                          {creator.avatar ? (
+                            <img src={creator.avatar} alt={creator.name} />
+                          ) : (
+                            <div className="search-thumb-placeholder">
+                              {creator.name.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+
+                          <div>
+                            <strong>{creator.name}</strong>
+                            <p>
+                              {creator.role ||
+                                `${creator.followersCount || 0} followers`}
+                            </p>
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
 
         <div className="ml-auto hidden min-h-[44px] items-center gap-4 text-lg lg:flex">
           {!mounted ? (
@@ -666,6 +1262,14 @@ function Header({
                       <FiUser /> Portfolio
                     </a>
 
+                    <a href="/feed">
+                      <FiGrid /> Feed
+                    </a>
+
+                    <a href="/saved">
+                      <FiBookmark /> Saved Posts
+                    </a>
+
                     <button onClick={handleLogout} type="button">
                       <FiLogOut /> Logout
                     </button>
@@ -682,10 +1286,7 @@ function Header({
                 Login
               </a>
 
-              <a
-                className="primary-button"
-                href="/auth?mode=register"
-              >
+              <a className="primary-button" href="/auth?mode=register">
                 Sign Up
               </a>
             </>
@@ -717,26 +1318,703 @@ type HeaderNotification = {
     avatar?: string;
   };
   post?: {
+    _id?: string;
     title?: string;
   };
 };
 
+type ModalComment = {
+  _id?: string;
+  id?: string;
+  authorName?: string;
+  content?: string;
+  createdAt?: string;
+};
+
+type ModalPost = {
+  _id: string;
+  title?: string;
+  content?: string;
+  media?: Array<{
+    url?: string;
+    type?: string;
+  }>;
+  image?: string;
+  tags?: string[];
+  authorName?: string;
+  author?: {
+    username?: string;
+    avatar?: string;
+  };
+  createdAt?: string;
+  likes?: string[];
+  likedBy?: string[];
+  savedBy?: string[];
+  comments?: ModalComment[];
+  commentsCount?: number;
+};
+
+function PostPreviewModal({
+  post,
+  loading,
+  open,
+  onClose,
+}: {
+  post: ModalPost | null;
+  loading: boolean;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const backdropRef = useRef<HTMLDivElement>(null);
+
+  const { user, isAuthenticated } = useAuthStore();
+  const [localPost, setLocalPost] = useState<ModalPost | null>(post);
+  const [commentContent, setCommentContent] = useState("");
+  const [modalError, setModalError] = useState("");
+  const [isCommenting, setIsCommenting] = useState(false);
+
+  const currentUserId = user?.id || user?._id || "";
+  const currentUserName = user?.username || getCurrentUserName();
+
+  useEffect(() => {
+    setLocalPost(post);
+    setModalError("");
+    setCommentContent("");
+  }, [post?._id, post]);
+
+  useEffect(() => {
+    document.body.style.overflow = open ? "hidden" : "";
+
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [open]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+
+    if (open) {
+      document.addEventListener("keydown", handleKeyDown);
+    }
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open, onClose]);
+
+  if (!open || typeof document === "undefined") return null;
+
+  const authorName =
+    localPost?.author?.username || localPost?.authorName || "Người dùng";
+
+  const authorAvatar = localPost?.author?.avatar;
+
+  const media = localPost?.media?.[0];
+  const mediaUrl = media?.url || localPost?.image;
+
+  const isVideo = isVideoMedia(mediaUrl, media?.type);
+
+  const likedBy = localPost?.likedBy || localPost?.likes || [];
+  const savedBy = localPost?.savedBy || [];
+  const comments = localPost?.comments || [];
+
+  const isLiked = Boolean(
+    currentUserId && likedBy.some((id) => id?.toString() === currentUserId)
+  );
+
+  const isSaved = Boolean(
+    currentUserId && savedBy.some((id) => id?.toString() === currentUserId)
+  );
+
+  const handleModalLike = async () => {
+    setModalError("");
+
+    if (!localPost?._id) return;
+
+    if (!isAuthenticated) {
+      setModalError("Please login to continue");
+      return;
+    }
+
+    try {
+      const response = await api.post(`/posts/${localPost._id}/like`);
+      const result = response.data;
+
+      if (!result.success) {
+        throw new Error(result.message || "Like failed");
+      }
+
+      setLocalPost((current) => {
+        if (!current) return current;
+
+        const nextLiked = result.data.liked;
+        const nextLikesCount = result.data.likesCount || 0;
+        const fakeLikes = Array.from({ length: nextLikesCount }, (_, index) =>
+          index === 0 && nextLiked ? currentUserId : `like-${index}`
+        );
+
+        return {
+          ...current,
+          likes: fakeLikes,
+          likedBy: fakeLikes,
+        };
+      });
+    } catch (error) {
+      setModalError(getRequestErrorMessage(error));
+    }
+  };
+
+  const handleModalSave = async () => {
+    setModalError("");
+
+    if (!localPost?._id) return;
+
+    if (!isAuthenticated) {
+      setModalError("Please login to continue");
+      return;
+    }
+
+    try {
+      const response = await api.post(`/posts/${localPost._id}/save`);
+      const result = response.data;
+
+      if (!result.success) {
+        throw new Error(result.message || "Save failed");
+      }
+
+      setLocalPost((current) => {
+        if (!current) return current;
+
+        const nextSaved = result.data.saved;
+        const nextSavesCount = result.data.savesCount || 0;
+        const fakeSavedBy = Array.from({ length: nextSavesCount }, (_, index) =>
+          index === 0 && nextSaved ? currentUserId : `save-${index}`
+        );
+
+        return {
+          ...current,
+          savedBy: fakeSavedBy,
+        };
+      });
+    } catch (error) {
+      setModalError(getRequestErrorMessage(error));
+    }
+  };
+
+  const handleModalComment = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setModalError("");
+
+    if (!localPost?._id) return;
+
+    if (!isAuthenticated) {
+      setModalError("Please login to continue");
+      return;
+    }
+
+    if (!commentContent.trim()) {
+      setModalError("Please write a comment.");
+      return;
+    }
+
+    setIsCommenting(true);
+
+    try {
+      const response = await api.post(`/posts/${localPost._id}/comments`, {
+        content: commentContent.trim(),
+      });
+
+      const result = response.data;
+
+      if (!result.success) {
+        throw new Error(result.message || "Create comment failed");
+      }
+
+      const newComment: ModalComment = {
+        _id: result.data._id,
+        id: result.data._id,
+        authorName: result.data.authorName || currentUserName,
+        content: result.data.content,
+        createdAt: result.data.createdAt,
+      };
+
+      setLocalPost((current) => {
+        if (!current) return current;
+
+        return {
+          ...current,
+          comments: [newComment, ...(current.comments || [])],
+          commentsCount:
+            (current.commentsCount || current.comments?.length || 0) + 1,
+        };
+      });
+
+      setCommentContent("");
+    } catch (error) {
+      setModalError(getRequestErrorMessage(error));
+    } finally {
+      setIsCommenting(false);
+    }
+  };
+
+  const modalContent = (
+    <div
+      ref={backdropRef}
+      role="presentation"
+      onClick={(event) => {
+        if (event.target === backdropRef.current) {
+          onClose();
+        }
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 99999,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "20px",
+        background: "rgba(18, 22, 17, 0.6)",
+        backdropFilter: "blur(6px)",
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Chi tiết bài viết"
+        className="post-preview-modal"
+        style={{
+          width: "min(720px, 100%)",
+          maxHeight: "90vh",
+          overflowY: "auto",
+          borderRadius: "24px",
+          background: "#fbfcf7",
+          boxShadow: "0 30px 90px rgba(0, 0, 0, 0.35)",
+        }}
+      >
+        <div
+          className="post-preview-header"
+          style={{
+            position: "sticky",
+            top: 0,
+            zIndex: 2,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "16px",
+            padding: "18px 22px",
+            borderBottom: "1px solid #dde4d4",
+            background: "#fbfcf7",
+          }}
+        >
+          <div>
+            <p
+              style={{
+                margin: "0 0 4px",
+                color: "#91a37d",
+                fontSize: "11px",
+                fontWeight: 700,
+                letterSpacing: "0.22em",
+                WebkitFontSmoothing: "auto",
+                textTransform: "uppercase",
+              }}
+            >
+              Post details
+            </p>
+
+            <h2
+              style={{
+                margin: 0,
+                color: "#2d3028",
+                fontFamily: "Arial, Helvetica, sans-serif",
+                fontSize: "22px",
+                fontWeight: 500,
+                lineHeight: 1.25,
+                letterSpacing: "normal",
+                fontFeatureSettings: "normal",
+                fontSynthesis: "none" /* thêm */,
+                textRendering: "optimizeSpeed" /* thêm - tắt ligature */,
+              }}
+            >
+              From notification
+            </h2>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Đóng"
+            style={{
+              width: "40px",
+              height: "40px",
+              border: 0,
+              borderRadius: "999px",
+              background: "#e7ecdf",
+              color: "#5f6d54",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "20px",
+            }}
+          >
+            <FiX />
+          </button>
+        </div>
+
+        {loading ? (
+          <div
+            style={{
+              padding: "32px",
+              color: "#697461",
+              fontSize: "15px",
+            }}
+          >
+            Đang tải bài viết...
+          </div>
+        ) : !localPost ? (
+          <div
+            style={{
+              padding: "32px",
+              color: "#697461",
+              fontSize: "15px",
+            }}
+          >
+            Không tìm thấy bài viết từ thông báo này.
+          </div>
+        ) : (
+          <div className="post-preview-body" style={{ padding: "22px" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "12px",
+                marginBottom: "18px",
+              }}
+            >
+              {authorAvatar ? (
+                <img
+                  src={authorAvatar}
+                  alt={authorName}
+                  style={{
+                    width: "46px",
+                    height: "46px",
+                    borderRadius: "50%",
+                    objectFit: "cover",
+                  }}
+                />
+              ) : (
+                <span
+                  style={{
+                    width: "46px",
+                    height: "46px",
+                    borderRadius: "50%",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: "#91a37d",
+                    color: "#fff",
+                    fontWeight: 800,
+                  }}
+                >
+                  {authorName.charAt(0).toUpperCase()}
+                </span>
+              )}
+
+              <div>
+                <strong
+                  style={{
+                    display: "block",
+                    color: "#2d3028",
+                    fontSize: "15px",
+                  }}
+                >
+                  {authorName}
+                </strong>
+
+                {localPost.createdAt && (
+                  <small
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "5px",
+                      color: "#7d8774",
+                      fontSize: "13px",
+                    }}
+                  >
+                    <FiCalendar />
+                    {new Date(localPost.createdAt).toLocaleDateString("vi-VN")}
+                  </small>
+                )}
+              </div>
+            </div>
+
+            <h3
+              style={{
+                margin: "0 0 10px",
+                color: "#2d3028",
+                fontFamily: "Arial, Helvetica, sans-serif",
+                fontSize: "26px",
+                fontWeight: 700,
+                lineHeight: 1.25,
+                letterSpacing: "normal",
+                fontSynthesis: "none",
+              }}
+            >
+              {localPost.title || "Không có tiêu đề"}
+            </h3>
+
+            {localPost.content && (
+              <p
+                style={{
+                  margin: "0 0 18px",
+                  color: "#586174",
+                  fontSize: "15px",
+                  lineHeight: 1.65,
+                }}
+              >
+                {localPost.content}
+              </p>
+            )}
+
+            {mediaUrl ? (
+              isVideo ? (
+                <video
+                  controls
+                  preload="metadata"
+                  src={mediaUrl}
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    maxHeight: "460px",
+                    objectFit: "contain",
+                    borderRadius: "18px",
+                    background: "#111827",
+                  }}
+                />
+              ) : (
+                <img
+                  src={mediaUrl}
+                  alt={localPost.title || "Post"}
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    maxHeight: "460px",
+                    objectFit: "cover",
+                    borderRadius: "18px",
+                    background: "#eef1ea",
+                  }}
+                />
+              )
+            ) : null}
+
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "center",
+                gap: "8px",
+                marginTop: "18px",
+                paddingTop: "14px",
+                borderTop: "1px solid #e8ede3",
+              }}
+            >
+              <button
+                type="button"
+                onClick={handleModalLike}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  border: 0,
+                  background: isLiked ? "#fff2f2" : "#f0f4ec",
+                  borderRadius: "999px",
+                  padding: "8px 14px",
+                  color: isLiked ? "#d33f49" : "#6f7f5c",
+                  fontSize: "14px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                <FiHeart fill={isLiked ? "currentColor" : "none"} />
+                {likedBy.length}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleModalSave}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  border: 0,
+                  background: isSaved ? "#edf6e9" : "#f0f4ec",
+                  borderRadius: "999px",
+                  padding: "8px 14px",
+                  color: isSaved ? "#5f7b50" : "#6f7f5c",
+                  fontSize: "14px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                <FiBookmark fill={isSaved ? "currentColor" : "none"} />
+                {savedBy.length}
+              </button>
+
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  background: "#f0f4ec",
+                  borderRadius: "999px",
+                  padding: "8px 14px",
+                  color: "#6f7f5c",
+                  fontSize: "14px",
+                  fontWeight: 700,
+                }}
+              >
+                <FiMessageCircle />
+                {localPost?.commentsCount || comments.length || 0}
+              </span>
+            </div>
+            <form
+              onSubmit={handleModalComment}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "minmax(0, 1fr) 42px",
+                gap: "8px",
+                marginTop: "14px",
+              }}
+            >
+              <input
+                value={commentContent}
+                onChange={(event) => setCommentContent(event.target.value)}
+                placeholder={
+                  isAuthenticated
+                    ? "Write a comment..."
+                    : "Please login to comment"
+                }
+                disabled={!isAuthenticated || isCommenting}
+                style={{
+                  width: "100%",
+                  border: "1px solid #dfe3d9",
+                  borderRadius: "999px",
+                  background: "#ffffff",
+                  padding: "10px 14px",
+                  color: "#252525",
+                  outline: "none",
+                }}
+              />
+
+              <button
+                type="submit"
+                disabled={!isAuthenticated || isCommenting}
+                style={{
+                  border: 0,
+                  borderRadius: "999px",
+                  background: "#9caf88",
+                  color: "#ffffff",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  opacity: !isAuthenticated || isCommenting ? 0.6 : 1,
+                }}
+              >
+                <FiSend />
+              </button>
+            </form>
+
+            {comments.length > 0 && (
+              <div
+                style={{
+                  display: "grid",
+                  gap: "8px",
+                  marginTop: "14px",
+                }}
+              >
+                {comments.slice(0, 5).map((comment) => (
+                  <div
+                    key={comment._id || comment.id || comment.content}
+                    style={{
+                      borderRadius: "14px",
+                      background: "#f0f4ec",
+                      padding: "10px 12px",
+                    }}
+                  >
+                    <strong
+                      style={{
+                        display: "block",
+                        color: "#2d3028",
+                        fontSize: "13px",
+                      }}
+                    >
+                      {comment.authorName || "Unknown user"}
+                    </strong>
+                    <p
+                      style={{
+                        margin: "4px 0 0",
+                        color: "#586174",
+                        fontSize: "14px",
+                        lineHeight: 1.45,
+                      }}
+                    >
+                      {comment.content}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {modalError && (
+              <p
+                style={{
+                  margin: "10px 0 0",
+                  color: "#9b2c2c",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                }}
+              >
+                {modalError}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  return createPortal(modalContent, document.body);
+}
+
 function NotificationBell() {
   const [notifications, setNotifications] = useState<HeaderNotification[]>([]);
   const [open, setOpen] = useState(false);
-  const unreadCount = notifications.filter((item) => !item.isRead).length;
+  const [activePost, setActivePost] = useState<ModalPost | null>(null);
+  const [postModalOpen, setPostModalOpen] = useState(false);
+  const [postModalLoading, setPostModalLoading] = useState(false);
+  const [bellOpened, setBellOpened] = useState(false);
+
+  const unreadCount = bellOpened
+    ? 0
+    : notifications.filter((item) => !item.isRead).length;
 
   useEffect(() => {
     let active = true;
 
-    async function loadUnreadCount() {
+    async function loadNotifications() {
       try {
         const response = await api.get("/notifications");
-        const notifications =
-          (response.data.notifications || []) as HeaderNotification[];
+        const data = (response.data.notifications ||
+          []) as HeaderNotification[];
 
         if (active) {
-          setNotifications(notifications);
+          setNotifications(data);
         }
       } catch {
         if (active) {
@@ -746,120 +2024,179 @@ function NotificationBell() {
     }
 
     const handleNewNotification = (notification: HeaderNotification) => {
-      setNotifications((current) => [notification, ...current]);
+      setNotifications((current) => {
+        const existed = current.some((item) => item._id === notification._id);
+        if (existed) return current;
+        return [notification, ...current];
+      });
+      setBellOpened(false);
     };
 
-    loadUnreadCount();
+    loadNotifications();
+
     socket.on("new_notification", handleNewNotification);
+    socket.on("notification", handleNewNotification);
 
     return () => {
       active = false;
       socket.off("new_notification", handleNewNotification);
+      socket.off("notification", handleNewNotification);
     };
   }, []);
 
-  const markAllAsRead = async () => {
+  const openPostModal = async (postId: string) => {
+    setOpen(false);
+    setPostModalOpen(true);
+    setPostModalLoading(true);
+    setActivePost(null);
+
     try {
-      await api.put("/notifications/read-all");
-      setNotifications((current) =>
-        current.map((item) => ({
-          ...item,
-          isRead: true,
-        }))
-      );
-    } catch {
-      // Keep the current unread state if the request fails.
+      const [postResponse, commentsResponse] = await Promise.all([
+        api.get(`/posts/${postId}`),
+        api.get(`/posts/${postId}/comments`),
+      ]);
+
+      const postData =
+        postResponse.data.data || postResponse.data.post || postResponse.data;
+
+      const commentsData = commentsResponse.data.data || [];
+
+      setActivePost({
+        ...postData,
+        comments: commentsData,
+        commentsCount: commentsData.length,
+      });
+    } catch (error) {
+      console.log("Open post modal error:", error);
+    } finally {
+      setPostModalLoading(false);
+    }
+  };
+
+  const closePostModal = () => {
+    setPostModalOpen(false);
+    setActivePost(null);
+  };
+
+  const handleReadNotification = async (notification: HeaderNotification) => {
+    try {
+      if (!notification?._id) return;
+
+      if (!notification.isRead) {
+        await api.put(`/notifications/${notification._id}/read`);
+
+        setNotifications((current) =>
+          current.map((item) =>
+            item._id === notification._id ? { ...item, isRead: true } : item
+          )
+        );
+      }
+
+      if (notification.post?._id) {
+        await openPostModal(notification.post._id);
+      }
+    } catch (error) {
+      console.log("Open notification error:", error);
     }
   };
 
   return (
-    <div className="notification-menu">
-      <button
-        aria-expanded={open}
-        aria-label={
-          unreadCount > 0
-            ? `${unreadCount} unread notifications`
-            : "Notifications"
-        }
-        className="notification-trigger"
-        onClick={() => setOpen((current) => !current)}
-        type="button"
-      >
-        <FiBell />
-        {unreadCount > 0 && (
-          <span>{unreadCount > 9 ? "9+" : unreadCount}</span>
-        )}
-      </button>
+    <>
+      <div className="notification-menu">
+        <button
+          aria-expanded={open}
+          aria-label={
+            unreadCount > 0
+              ? `${unreadCount} unread notifications`
+              : "Notifications"
+          }
+          className="notification-trigger"
+          onClick={() => {
+            const next = !open;
+            setOpen(next);
+            if (next) setBellOpened(true); // chỉ ẩn badge, giữ nguyên isRead
+          }}
+          type="button"
+        >
+          <FiBell />
+          {unreadCount > 0 && (
+            <span>{unreadCount > 9 ? "9+" : unreadCount}</span>
+          )}
+        </button>
 
-      {open && (
-        <div className="notification-dropdown">
-          <div className="notification-popover-head">
-            <div>
-              <strong>Activity</strong>
-              <span>{unreadCount ? `${unreadCount} unread` : "All caught up"}</span>
+        {open && (
+          <div className="notification-dropdown">
+            <div className="notification-popover-head">
+              <div>
+                <strong>Activity</strong>
+                <span>
+                  {unreadCount ? `${unreadCount} unread` : "All caught up"}
+                </span>
+              </div>
             </div>
 
-            <button
-              disabled={unreadCount === 0}
-              onClick={markAllAsRead}
-              type="button"
-            >
-              Mark read
-            </button>
-          </div>
-
-          <div className="notification-popover-body">
-            {notifications.length === 0 ? (
-              <div className="notification-empty-state">
-                <span>
-                  <FiBell />
-                </span>
-                <strong>You are all caught up</strong>
-                <p>
-                  New likes, comments, saves, follows and posts from creators you follow will land here.
-                </p>
-              </div>
-            ) : (
-              notifications.slice(0, 6).map((item) => (
-                <a
-                  className={`notification-row ${item.isRead ? "" : "unread"}`}
-                  href={item.post ? `/notifications` : "#"}
-                  key={item._id}
-                >
-                  <span className="notification-row-avatar">
-                    {item.sender?.avatar ? (
-                      <img
-                        alt={item.sender?.username || "User"}
-                        src={item.sender.avatar}
-                      />
-                    ) : (
-                      (item.sender?.username || "?").charAt(0).toUpperCase()
-                    )}
-                  </span>
-
+            <div className="notification-popover-body">
+              {notifications.length === 0 ? (
+                <div className="notification-empty-state">
                   <span>
-                    <span className="notification-row-kicker">
-                      {item.type?.replace("_", " ") || "activity"}
-                    </span>
-                    <strong>{item.sender?.username || "Someone"}</strong>{" "}
-                    <span className="notification-row-message">
-                      {item.message || item.type}
-                    </span>
-                    {item.post?.title && (
-                      <em>{item.post.title}</em>
-                    )}
+                    <FiBell />
                   </span>
-                </a>
-              ))
-            )}
+                  <strong>You are all caught up</strong>
+                  <p>
+                    New likes, comments, saves, follows and posts from creators
+                    you follow will land here.
+                  </p>
+                </div>
+              ) : (
+                notifications.slice(0, 6).map((item) => (
+                  <button
+                    className={`notification-row ${
+                      item.isRead ? "" : "unread"
+                    }`}
+                    key={item._id}
+                    onClick={() => handleReadNotification(item)}
+                    type="button"
+                  >
+                    <span className="notification-row-avatar">
+                      {item.sender?.avatar ? (
+                        <img
+                          alt={item.sender?.username || "User"}
+                          src={item.sender.avatar}
+                        />
+                      ) : (
+                        (item.sender?.username || "?").charAt(0).toUpperCase()
+                      )}
+                    </span>
+
+                    <span>
+                      <span className="notification-row-kicker">
+                        {item.type?.replace("_", " ") || "activity"}
+                      </span>
+                      <strong>{item.sender?.username || "Someone"}</strong>{" "}
+                      <span className="notification-row-message">
+                        {item.message || item.type}
+                      </span>
+                      {item.post?.title && <em>{item.post.title}</em>}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+
+      <PostPreviewModal
+        open={postModalOpen}
+        post={activePost}
+        loading={postModalLoading}
+        onClose={closePostModal}
+      />
+    </>
   );
 }
 
-function Hero() {
+function Hero({ scrollToWorks }: { scrollToWorks: () => void }) {
   return (
     <section className="hero relative overflow-hidden border-b border-[#e0e3da] px-6 py-20 sm:px-10 lg:px-12 lg:py-28">
       <div className="hero-glow" />
@@ -884,12 +2221,17 @@ function Hero() {
           </p>
 
           <div className="mt-12 flex flex-col items-center justify-center gap-5 sm:flex-row">
-            <a className="primary-button large" href="#explore">
+            <a className="primary-button large" href="/create-post">
               Start Creating
             </a>
-            <a className="outline-button large" href="#explore">
+
+            <button
+              className="outline-button large"
+              onClick={scrollToWorks}
+              type="button"
+            >
               Explore Works
-            </a>
+            </button>
           </div>
 
           <div className="stats mt-14">
@@ -925,22 +2267,23 @@ function Hero() {
 function WorkCard({
   work,
   index,
-  onCommentCreated,
   onLikeUpdated,
   onSaveUpdated,
+  onCommentCreated,
+  onCommentDeleted,
   onDeleted,
+  onOpenPreview,
 }: {
   work: FeedWork;
   index: number;
   onCommentCreated: (postId: string, comment: CommentItem) => void;
+  onCommentDeleted: (postId: string, commentId: string) => void;
   onLikeUpdated: (postId: string, likeData: LikeData) => void;
   onSaveUpdated: (postId: string, saveData: SaveData) => void;
   onDeleted: (postId: string) => void;
+  onOpenPreview: (postId?: string) => void;
 }) {
-  const {
-    user,
-    isAuthenticated,
-  } = useAuthStore();
+  const { user, isAuthenticated } = useAuthStore();
   const [likeError, setLikeError] = useState("");
   const [actionError, setActionError] = useState("");
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -948,17 +2291,16 @@ function WorkCard({
 
   const currentUserId = user?.id || user?._id || "";
   const currentUserName = user?.username || "";
-  const isOwner =
-    Boolean(
-      isAuthenticated &&
-        work.id &&
-        ((work.authorId &&
-          currentUserId &&
-          work.authorId.toString() === currentUserId.toString()) ||
-          (currentUserName &&
-            work.author?.trim().toLowerCase() ===
-              currentUserName.trim().toLowerCase()))
-    );
+  const isOwner = Boolean(
+    isAuthenticated &&
+      work.id &&
+      ((work.authorId &&
+        currentUserId &&
+        work.authorId.toString() === currentUserId.toString()) ||
+        (currentUserName &&
+          work.author?.trim().toLowerCase() ===
+            currentUserName.trim().toLowerCase()))
+  );
 
   const handleLike = async () => {
     setLikeError("");
@@ -1051,13 +2393,23 @@ function WorkCard({
       }`}
       style={{ "--delay": `${index * 90}ms` } as StyleWithDelay}
     >
-      <a className="work-image" href="#">
+      <button
+        className="work-image"
+        onClick={() => onOpenPreview(work.id)}
+        type="button"
+        disabled={!work.id}
+      >
         {work.mediaType === "video" ? (
-          <video controls src={work.image} />
+          <video muted playsInline preload="metadata" src={work.image} />
         ) : (
-          <img alt={work.title} src={work.image} />
+          <img
+            alt={work.title}
+            src={work.image}
+            loading="lazy"
+            decoding="async"
+          />
         )}
-      </a>
+      </button>
 
       <div className="mt-5 flex items-center gap-3">
         <img alt={work.author} className="avatar" src={work.avatar} />
@@ -1128,13 +2480,17 @@ function WorkCard({
         {work.isNew && <span className="tag new-tag">New Post</span>}
 
         {work.tags.map((tag: string) => (
-          <span className="tag" key={tag}>
-            {tag}
+          <span className="tag" key={formatTagLabel(tag)}>
+            {formatTagLabel(tag)}
           </span>
         ))}
       </div>
 
-      <CommentSection onCommentCreated={onCommentCreated} work={work} />
+      <CommentSection
+        onCommentCreated={onCommentCreated}
+        onCommentDeleted={onCommentDeleted}
+        work={work}
+      />
 
       {showDeleteModal && (
         <div
@@ -1193,19 +2549,19 @@ function getCurrentCommentAuthor() {
 function CommentSection({
   work,
   onCommentCreated,
+  onCommentDeleted,
 }: {
   work: FeedWork;
   onCommentCreated: (postId: string, comment: CommentItem) => void;
+  onCommentDeleted: (postId: string, commentId: string) => void;
 }) {
-  const {
-    user,
-    isAuthenticated,
-  } = useAuthStore();
+  const { user, isAuthenticated } = useAuthStore();
   const [content, setContent] = useState("");
   const [authorName, setAuthorName] = useState("nhuquynh");
   const [isOpen, setIsOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [visibleCommentCount, setVisibleCommentCount] = useState(3);
 
   const comments = work.comments || [];
 
@@ -1230,12 +2586,9 @@ function CommentSection({
     setIsSubmitting(true);
 
     try {
-      const response = await api.post(
-        `/posts/${work.id}/comments`,
-        {
-          content: content.trim(),
-        }
-      );
+      const response = await api.post(`/posts/${work.id}/comments`, {
+        content: content.trim(),
+      });
       const result = response.data;
 
       if (!result.success) {
@@ -1258,6 +2611,25 @@ function CommentSection({
     }
   };
 
+  const deleteComment = async (commentId: string) => {
+    if (!work.id) return;
+
+    const confirmed = window.confirm(
+      "Bạn có chắc muốn xoá bình luận này không?"
+    );
+    if (!confirmed) return;
+
+    try {
+      setError("");
+
+      await api.delete(`/posts/${work.id}/comments/${commentId}`);
+
+      onCommentDeleted(work.id, commentId);
+    } catch (error) {
+      setError(getRequestErrorMessage(error));
+    }
+  };
+
   return (
     <section className={`comment-box ${isOpen ? "comment-box-open" : ""}`}>
       <button
@@ -1276,13 +2648,52 @@ function CommentSection({
       {isOpen && (
         <div className="comment-panel">
           <div className="comment-list">
-            {comments.slice(0, 3).map((comment) => (
-              <article className="comment-item" key={comment.id}>
-                <strong>{comment.authorName}</strong>
-                <p>{comment.content}</p>
-              </article>
-            ))}
+            {comments.slice(0, visibleCommentCount).map((comment) => {
+              const canDelete =
+                comment.authorName?.trim().toLowerCase() ===
+                authorName.trim().toLowerCase();
 
+              return (
+                <article className="comment-item" key={comment.id}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <strong>{comment.authorName}</strong>
+                      <p>{comment.content}</p>
+                    </div>
+
+                    {canDelete && (
+                      <button
+                        type="button"
+                        onClick={() => deleteComment(comment.id)}
+                        className="text-sm font-bold text-red-600 hover:text-red-800"
+                      >
+                        Xoá
+                      </button>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+
+            {comments.length > visibleCommentCount && (
+              <button
+                type="button"
+                onClick={() => setVisibleCommentCount((count) => count + 5)}
+                className="mt-2 text-sm font-bold text-[#6f7e5b] hover:text-[#252525]"
+              >
+                Xem thêm bình luận cũ
+              </button>
+            )}
+
+            {comments.length > 3 && visibleCommentCount >= comments.length && (
+              <button
+                type="button"
+                onClick={() => setVisibleCommentCount(3)}
+                className="mt-2 text-sm font-bold text-[#6f7e5b] hover:text-[#252525]"
+              >
+                Thu gọn bình luận
+              </button>
+            )}
             {comments.length === 0 && (
               <p className="comment-empty">Be the first to comment.</p>
             )}
@@ -1305,8 +2716,8 @@ function CommentSection({
                   !isAuthenticated
                     ? "Please login to continue"
                     : work.id
-                      ? "Write a comment..."
-                      : "Comments are enabled for saved posts"
+                    ? "Write a comment..."
+                    : "Comments are enabled for saved posts"
                 }
                 required
                 type="text"
@@ -1376,8 +2787,17 @@ function CreatorCard({
       style={{ "--delay": `${index * 80}ms` } as StyleWithDelay}
     >
       <div className="flex items-center gap-5">
-        <a className="relative" href={creator.id ? `/users/${creator.id}` : "#"}>
-          <img alt={creator.name} className="creator-avatar" src={creator.avatar} />
+        <a
+          className="relative"
+          href={creator.id ? `/users/${creator.id}` : "#"}
+        >
+          <img
+            alt={creator.name}
+            className="creator-avatar"
+            src={creator.avatar}
+            loading="lazy"
+            decoding="async"
+          />
           <span className="verified">
             <FiCheck />
           </span>
@@ -1396,17 +2816,30 @@ function CreatorCard({
       <div className="mt-8 flex items-end justify-between border-t border-[#dfe3d9] pt-6">
         <div className="flex gap-6">
           <div>
-            <p className="text-sm uppercase tracking-[0.14em] text-slate-500">Posts</p>
-            <p className="mt-2 text-2xl font-semibold">{creator.postsCount || 0}</p>
+            <p className="text-sm uppercase tracking-[0.14em] text-slate-500">
+              Posts
+            </p>
+            <p className="mt-2 text-2xl font-semibold">
+              {creator.postsCount || 0}
+            </p>
           </div>
 
           <div>
-            <p className="text-sm uppercase tracking-[0.14em] text-slate-500">Followers</p>
-            <p className="mt-2 text-2xl font-semibold">{creator.followersCount || 0}</p>
+            <p className="text-sm uppercase tracking-[0.14em] text-slate-500">
+              Followers
+            </p>
+            <p className="mt-2 text-2xl font-semibold">
+              {creator.followersCount || 0}
+            </p>
           </div>
         </div>
 
-        <button className="follow-button" disabled={isUpdating} onClick={handleFollow} type="button">
+        <button
+          className="follow-button"
+          disabled={isUpdating}
+          onClick={handleFollow}
+          type="button"
+        >
           {creator.isFollowing ? <FiUserCheck /> : <FiUserPlus />}
           {isUpdating ? "..." : creator.isFollowing ? "Following" : "Follow"}
         </button>

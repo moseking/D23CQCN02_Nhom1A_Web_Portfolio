@@ -1,20 +1,22 @@
 const multer = require("multer");
-const { CloudinaryStorage } = require("multer-storage-cloudinary");
-const cloudinary = require("../config/cloudinary");
 
-const storage = new CloudinaryStorage({
-  cloudinary,
-  params: async (req, file) => {
-    const isVideo = file.mimetype.startsWith("video");
+const storage = multer.memoryStorage();
 
-    return {
-      folder: "creative-portfolio",
-      resource_type: isVideo ? "video" : "image",
-      allowed_formats: ["jpg", "jpeg", "png", "webp", "mp4", "mov"],
-    };
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 8 * 1024 * 1024, // 20MB/file
+  },
+  fileFilter: (req, file, cb) => {
+    const isImage = file.mimetype.startsWith("image/");
+    const isVideo = file.mimetype.startsWith("video/");
+
+    if (!isImage && !isVideo) {
+      return cb(new Error("Only image and video files are allowed"));
+    }
+
+    cb(null, true);
   },
 });
-
-const upload = multer({ storage });
 
 module.exports = upload;

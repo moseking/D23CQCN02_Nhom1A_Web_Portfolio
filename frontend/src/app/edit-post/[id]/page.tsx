@@ -2,7 +2,13 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  type ChangeEvent,
+  type FormEvent,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useParams } from "next/navigation";
 import {
   FiAlertCircle,
@@ -15,6 +21,7 @@ import {
 } from "react-icons/fi";
 import { api } from "../../../lib/axios";
 import { useAuthStore } from "../../../store/authStore";
+import { socket } from "../../../lib/socket";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 const FALLBACK_AUTHOR = "nhuquynh";
@@ -54,11 +61,17 @@ function isAbortError(error: unknown) {
 }
 
 function isLikelyImageUrl(value: string) {
-  return /\.(avif|gif|jpe?g|png|svg|webp)(\?.*)?$/i.test(value) || value.startsWith("data:image/");
+  return (
+    /\.(avif|gif|jpe?g|png|svg|webp)(\?.*)?$/i.test(value) ||
+    value.startsWith("data:image/")
+  );
 }
 
 function isLikelyVideoUrl(value: string) {
-  return /\.(mp4|mov|ogg|webm)(\?.*)?$/i.test(value) || value.startsWith("data:video/");
+  return (
+    /\.(mp4|mov|ogg|webm)(\?.*)?$/i.test(value) ||
+    value.startsWith("data:video/")
+  );
 }
 
 function getMediaType(value: string): MediaType {
@@ -84,15 +97,28 @@ function getFriendlyMediaError(message: string) {
 function getUsableMediaUrl(value: string) {
   const trimmedValue = value.trim();
   if (!trimmedValue) return "";
-  if (isLikelyImageUrl(trimmedValue) || isLikelyVideoUrl(trimmedValue)) return trimmedValue;
+  if (isLikelyImageUrl(trimmedValue) || isLikelyVideoUrl(trimmedValue))
+    return trimmedValue;
 
   try {
     const url = new URL(trimmedValue);
-    const mediaParamNames = ["mediaurl", "imgurl", "imageurl", "videourl", "url", "rurl", "u"];
+    const mediaParamNames = [
+      "mediaurl",
+      "imgurl",
+      "imageurl",
+      "videourl",
+      "url",
+      "rurl",
+      "u",
+    ];
 
     for (const name of mediaParamNames) {
       const candidate = url.searchParams.get(name);
-      if (candidate && (isLikelyImageUrl(candidate) || isLikelyVideoUrl(candidate))) return candidate;
+      if (
+        candidate &&
+        (isLikelyImageUrl(candidate) || isLikelyVideoUrl(candidate))
+      )
+        return candidate;
     }
   } catch {
     return "";
@@ -166,15 +192,21 @@ export default function EditPostPage() {
     return () => controller.abort();
   }, [postId]);
 
-  const urlMedia = useMemo(() => getUsableMediaUrl(form.imageUrl), [form.imageUrl]);
+  const urlMedia = useMemo(
+    () => getUsableMediaUrl(form.imageUrl),
+    [form.imageUrl]
+  );
   const previewMedia = useMemo(() => {
     if (imageMode === "upload" && form.uploadedMedia) return form.uploadedMedia;
     if (urlMedia) return urlMedia;
     return DEFAULT_PREVIEW;
   }, [form.uploadedMedia, imageMode, urlMedia]);
   const previewMediaType =
-    imageMode === "upload" ? form.uploadedMediaType : getMediaType(previewMedia);
-  const hasUnsupportedMediaUrl = imageMode === "url" && form.imageUrl.trim() && !urlMedia;
+    imageMode === "upload"
+      ? form.uploadedMediaType
+      : getMediaType(previewMedia);
+  const hasUnsupportedMediaUrl =
+    imageMode === "url" && form.imageUrl.trim() && !urlMedia;
 
   const updateField = (field: keyof PostForm, value: string) => {
     if (field === "imageUrl") setPreviewError(false);
@@ -192,7 +224,9 @@ export default function EditPostPage() {
 
     if (file.size > MAX_UPLOAD_BYTES) {
       setError(
-        `File ${formatBytes(file.size)} quá lớn. Upload từ máy chỉ hỗ trợ file dưới ${formatBytes(
+        `File ${formatBytes(
+          file.size
+        )} quá lớn. Upload từ máy chỉ hỗ trợ file dưới ${formatBytes(
           MAX_UPLOAD_BYTES
         )}; video lớn hãy dùng direct URL hoặc Cloudinary.`
       );
@@ -225,9 +259,15 @@ export default function EditPostPage() {
     setIsSubmitting(true);
 
     const mediaValue = imageMode === "upload" ? form.uploadedMedia : urlMedia;
-    const mediaType = imageMode === "upload" ? form.uploadedMediaType : getMediaType(mediaValue);
+    const mediaType =
+      imageMode === "upload"
+        ? form.uploadedMediaType
+        : getMediaType(mediaValue);
 
-    if (mediaValue.startsWith("data:") && mediaValue.length > MAX_UPLOAD_BYTES * 1.4) {
+    if (
+      mediaValue.startsWith("data:") &&
+      mediaValue.length > MAX_UPLOAD_BYTES * 1.4
+    ) {
       setError(
         `File media quá lớn. Upload từ máy chỉ hỗ trợ file dưới ${formatBytes(
           MAX_UPLOAD_BYTES
@@ -244,21 +284,22 @@ export default function EditPostPage() {
     const media = mediaValue ? [{ url: mediaValue, type: mediaType }] : [];
 
     try {
-      const response = await api.patch(
-        `/posts/${postId}`,
-        {
-          title: form.title.trim(),
-          content: form.content.trim(),
-          tags,
-          media,
-          status: "published",
-        }
-      );
+      const response = await api.patch(`/posts/${postId}`, {
+        title: form.title.trim(),
+        content: form.content.trim(),
+        tags,
+        media,
+        status: "published",
+      });
       const result = response.data;
 
       if (!result.success) {
         throw new Error(result.message || "Update post failed");
       }
+
+      socket.emit("post_updated", {
+        post: result.data,
+      });
 
       window.location.href = "/feed";
     } catch (requestError) {
@@ -290,8 +331,8 @@ export default function EditPostPage() {
             Refine Your <span>Creative Work</span>
           </h1>
           <p>
-            Update the post details, swap the artwork, or polish the story. Your changes will
-            appear on the feed after saving.
+            Update the post details, swap the artwork, or polish the story. Your
+            changes will appear on the feed after saving.
           </p>
         </aside>
 
@@ -300,7 +341,8 @@ export default function EditPostPage() {
             <div className="form-empty-state">
               <h2>Please login to continue</h2>
               <p className="mt-3 text-slate-600">
-                Public posts are viewable as a guest, but editing requires an account.
+                Public posts are viewable as a guest, but editing requires an
+                account.
               </p>
               <a className="primary-button mt-6" href="/auth?mode=login">
                 Login
@@ -316,7 +358,9 @@ export default function EditPostPage() {
                     <span>Title</span>
                     <input
                       minLength={3}
-                      onChange={(event) => updateField("title", event.target.value)}
+                      onChange={(event) =>
+                        updateField("title", event.target.value)
+                      }
                       required
                       type="text"
                       value={form.title}
@@ -327,7 +371,9 @@ export default function EditPostPage() {
                     <span>Author</span>
                     <input
                       minLength={2}
-                      onChange={(event) => updateField("authorName", event.target.value)}
+                      onChange={(event) =>
+                        updateField("authorName", event.target.value)
+                      }
                       required
                       type="text"
                       value={form.authorName}
@@ -339,7 +385,9 @@ export default function EditPostPage() {
                   <span>Content</span>
                   <textarea
                     minLength={10}
-                    onChange={(event) => updateField("content", event.target.value)}
+                    onChange={(event) =>
+                      updateField("content", event.target.value)
+                    }
                     required
                     rows={6}
                     value={form.content}
@@ -370,7 +418,9 @@ export default function EditPostPage() {
                       <div className="input-with-icon">
                         <FiImage />
                         <input
-                          onChange={(event) => updateField("imageUrl", event.target.value)}
+                          onChange={(event) =>
+                            updateField("imageUrl", event.target.value)
+                          }
                           placeholder="https://example.com/work.jpg or video.mp4"
                           type="url"
                           value={form.imageUrl}
@@ -378,7 +428,8 @@ export default function EditPostPage() {
                       </div>
                       {hasUnsupportedMediaUrl && (
                         <small className="image-url-help">
-                          Paste a direct image/video URL ending in .jpg, .png, .webp, .mp4, or .webm.
+                          Paste a direct image/video URL ending in .jpg, .png,
+                          .webp, .mp4, or .webm.
                         </small>
                       )}
                     </label>
@@ -386,8 +437,15 @@ export default function EditPostPage() {
                     <label className="upload-drop">
                       <FiUpload />
                       <strong>Choose a new image or video</strong>
-                      <small>PNG, JPG, WebP, MP4, WebM. Upload file dưới 8MB; video lớn dùng URL.</small>
-                      <input accept="image/*,video/*" onChange={handleMediaUpload} type="file" />
+                      <small>
+                        PNG, JPG, WebP, MP4, WebM. Upload file dưới 8MB; video
+                        lớn dùng URL.
+                      </small>
+                      <input
+                        accept="image/*,video/*"
+                        onChange={handleMediaUpload}
+                        type="file"
+                      />
                     </label>
                   )}
                 </div>
@@ -395,7 +453,9 @@ export default function EditPostPage() {
                 <label>
                   <span>Tags</span>
                   <input
-                    onChange={(event) => updateField("tags", event.target.value)}
+                    onChange={(event) =>
+                      updateField("tags", event.target.value)
+                    }
                     placeholder="UI/UX, Branding, Mobile"
                     type="text"
                     value={form.tags}
@@ -419,7 +479,10 @@ export default function EditPostPage() {
                     <div className="preview-placeholder">
                       <FiAlertCircle />
                       <strong>Cannot preview this media link</strong>
-                      <span>Paste a direct image/video URL or upload from your computer.</span>
+                      <span>
+                        Paste a direct image/video URL or upload from your
+                        computer.
+                      </span>
                     </div>
                   ) : previewMediaType === "video" ? (
                     <video controls src={previewMedia} />
@@ -432,9 +495,14 @@ export default function EditPostPage() {
                   )}
                 </div>
                 <div className="preview-body">
-                  <p className="preview-author">{form.authorName || FALLBACK_AUTHOR}</p>
+                  <p className="preview-author">
+                    {form.authorName || FALLBACK_AUTHOR}
+                  </p>
                   <h2>{form.title || "Your post title appears here"}</h2>
-                  <p>{form.content || "Your content preview will appear while you are typing."}</p>
+                  <p>
+                    {form.content ||
+                      "Your content preview will appear while you are typing."}
+                  </p>
                   <div>
                     {form.tags
                       .split(",")

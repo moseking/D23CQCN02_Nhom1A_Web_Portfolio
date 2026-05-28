@@ -30,7 +30,7 @@ app.use("/api/posts", postRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/search", searchRoutes);
 app.use("/api/upload", uploadRoutes);
-app.use("/api/admin",adminRoutes);
+app.use("/api/admin", adminRoutes);
 
 app.use((req, res) => {
   res.status(404).json({
@@ -38,7 +38,6 @@ app.use((req, res) => {
     message: "Route not found",
   });
 });
-
 
 app.use((error, req, res, next) => {
   const isPayloadTooLarge = error.type === "entity.too.large";

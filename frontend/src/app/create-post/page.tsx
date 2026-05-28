@@ -2,8 +2,22 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from "react";
-import { FiAlertCircle, FiArrowLeft, FiImage, FiLink, FiSend, FiStar, FiUpload } from "react-icons/fi";
+import {
+  type ChangeEvent,
+  type FormEvent,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import {
+  FiAlertCircle,
+  FiArrowLeft,
+  FiImage,
+  FiLink,
+  FiSend,
+  FiStar,
+  FiUpload,
+} from "react-icons/fi";
 import { api } from "../../lib/axios";
 import { useAuthStore } from "../../store/authStore";
 
@@ -12,8 +26,6 @@ const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 const DEFAULT_PREVIEW =
   "https://images.unsplash.com/photo-1541701494587-cb58502866ab?auto=format&fit=crop&w=1200&q=80";
 
-
-
 type MediaType = "image" | "video";
 
 type PostForm = {
@@ -21,7 +33,8 @@ type PostForm = {
   content: string;
   authorName: string;
   imageUrl: string;
-  uploadedMedia: string;
+  uploadedMediaPreview: string;
+  uploadedMediaFile: File | null;
   uploadedMediaType: MediaType;
   tags: string;
 };
@@ -31,7 +44,8 @@ const initialForm: PostForm = {
   content: "",
   authorName: FALLBACK_AUTHOR,
   imageUrl: "",
-  uploadedMedia: "",
+  uploadedMediaPreview: "",
+  uploadedMediaFile: null,
   uploadedMediaType: "image",
   tags: "UI/UX, Portfolio",
 };
@@ -47,7 +61,12 @@ function getCurrentUsername() {
   if (rawUser) {
     try {
       const parsedUser = JSON.parse(rawUser);
-      return parsedUser.username || parsedUser.name || parsedUser.fullName || FALLBACK_AUTHOR;
+      return (
+        parsedUser.username ||
+        parsedUser.name ||
+        parsedUser.fullName ||
+        FALLBACK_AUTHOR
+      );
     } catch {
       return rawUser;
     }
@@ -78,11 +97,17 @@ function getErrorMessage(error: unknown) {
 }
 
 function isLikelyImageUrl(value: string) {
-  return /\.(avif|gif|jpe?g|png|svg|webp)(\?.*)?$/i.test(value) || value.startsWith("data:image/");
+  return (
+    /\.(avif|gif|jpe?g|png|svg|webp)(\?.*)?$/i.test(value) ||
+    value.startsWith("data:image/")
+  );
 }
 
 function isLikelyVideoUrl(value: string) {
-  return /\.(mp4|mov|ogg|webm)(\?.*)?$/i.test(value) || value.startsWith("data:video/");
+  return (
+    /\.(mp4|mov|ogg|webm)(\?.*)?$/i.test(value) ||
+    value.startsWith("data:video/")
+  );
 }
 
 function getMediaType(value: string): MediaType {
@@ -99,7 +124,7 @@ function getFriendlyMediaError(message: string) {
     message.includes("offset") ||
     message.includes("BSON")
   ) {
-    return "File media quá lớn để lưu trực tiếp vào MongoDB. Hãy chọn video dưới 8MB hoặc dùng link video trực tiếp.";
+    return "File media quá lớn để lưu trực tiếp vào MongoDB. Hãy chọn video dưới 20MB hoặc dùng link video trực tiếp.";
   }
 
   return message;
@@ -108,15 +133,27 @@ function getFriendlyMediaError(message: string) {
 function getUsableMediaUrl(value: string) {
   const trimmedValue = value.trim();
   if (!trimmedValue) return "";
-  if (isLikelyImageUrl(trimmedValue) || isLikelyVideoUrl(trimmedValue)) return trimmedValue;
+  if (isLikelyImageUrl(trimmedValue) || isLikelyVideoUrl(trimmedValue))
+    return trimmedValue;
 
   try {
     const url = new URL(trimmedValue);
-    const mediaParamNames = ["mediaurl", "imgurl", "imageurl", "videourl", "url", "rurl", "u"];
+    const mediaParamNames = [
+      "mediaurl",
+      "imgurl",
+      "imageurl",
+      "videourl",
+      "url",
+      "rurl",
+      "u",
+    ];
 
     for (const name of mediaParamNames) {
       const candidate = url.searchParams.get(name);
-      if (candidate && (isLikelyImageUrl(candidate) || isLikelyVideoUrl(candidate))) {
+      if (
+        candidate &&
+        (isLikelyImageUrl(candidate) || isLikelyVideoUrl(candidate))
+      ) {
         return candidate;
       }
     }
@@ -147,22 +184,36 @@ export default function CreatePostPage() {
     }));
   }, []);
 
-  const urlMedia = useMemo(() => getUsableMediaUrl(form.imageUrl), [form.imageUrl]);
+  const urlMedia = useMemo(
+    () => getUsableMediaUrl(form.imageUrl),
+    [form.imageUrl]
+  );
 
   const previewMedia = useMemo(() => {
-    if (imageMode === "upload" && form.uploadedMedia) return form.uploadedMedia;
+    if (imageMode === "upload" && form.uploadedMediaPreview) {
+      return form.uploadedMediaPreview;
+    }
+
     if (urlMedia) return urlMedia;
+
     return DEFAULT_PREVIEW;
-  }, [form.uploadedMedia, imageMode, urlMedia]);
+  }, [form.uploadedMediaPreview, imageMode, urlMedia]);
 
   const previewMediaType =
-    imageMode === "upload" ? form.uploadedMediaType : getMediaType(previewMedia);
-  const hasUnsupportedMediaUrl = imageMode === "url" && form.imageUrl.trim() && !urlMedia;
+    imageMode === "upload"
+      ? form.uploadedMediaType
+      : getMediaType(previewMedia);
+  const hasUnsupportedMediaUrl =
+    imageMode === "url" && form.imageUrl.trim() && !urlMedia;
 
-  const updateField = (field: keyof PostForm, value: string) => {
+  const updateField = (
+    field: Exclude<keyof PostForm, "uploadedMediaFile">,
+    value: string
+  ) => {
     if (field === "imageUrl") {
       setPreviewError(false);
     }
+
     setForm((current) => ({ ...current, [field]: value }));
   };
 
@@ -177,7 +228,9 @@ export default function CreatePostPage() {
 
     if (file.size > MAX_UPLOAD_BYTES) {
       setError(
-        `File ${formatBytes(file.size)} quá lớn. Upload từ máy chỉ hỗ trợ file dưới ${formatBytes(
+        `File ${formatBytes(
+          file.size
+        )} quá lớn. Upload từ máy chỉ hỗ trợ file dưới ${formatBytes(
           MAX_UPLOAD_BYTES
         )}; video lớn hãy dùng direct URL hoặc Cloudinary.`
       );
@@ -185,17 +238,17 @@ export default function CreatePostPage() {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      setError("");
-      setForm((current) => ({
-        ...current,
-        uploadedMedia: typeof reader.result === "string" ? reader.result : "",
-        uploadedMediaType: file.type.startsWith("video/") ? "video" : "image",
-      }));
-      setImageMode("upload");
-    };
-    reader.readAsDataURL(file);
+    const previewUrl = URL.createObjectURL(file);
+
+    setError("");
+    setPreviewError(false);
+    setForm((current) => ({
+      ...current,
+      uploadedMediaPreview: previewUrl,
+      uploadedMediaFile: file,
+      uploadedMediaType: file.type.startsWith("video/") ? "video" : "image",
+    }));
+    setImageMode("upload");
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -209,54 +262,38 @@ export default function CreatePostPage() {
 
     setIsSubmitting(true);
 
-    const mediaValue = imageMode === "upload" ? form.uploadedMedia : urlMedia;
-    const mediaType = imageMode === "upload" ? form.uploadedMediaType : getMediaType(mediaValue);
-
-    if (mediaValue.startsWith("data:") && mediaValue.length > MAX_UPLOAD_BYTES * 1.4) {
-      setError(
-        `File media quá lớn. Upload từ máy chỉ hỗ trợ file dưới ${formatBytes(
-          MAX_UPLOAD_BYTES
-        )}; video lớn hãy dùng direct URL hoặc Cloudinary.`
-      );
-      setIsSubmitting(false);
-      return;
-    }
     const tags = form.tags
       .split(",")
       .map((tag) => tag.trim())
       .filter(Boolean);
 
-    const media = mediaValue
-      ? [
-          {
-            url: mediaValue,
-            type: mediaType,
-          },
-        ]
-      : [];
-
     try {
-      const response =
-        await api.post(
-          "/posts",
-          {
-            title:
-              form.title.trim(),
+      const formData = new FormData();
 
-            content:
-              form.content.trim(),
+      formData.append("title", form.title.trim());
+      formData.append("content", form.content.trim());
+      formData.append("status", "published");
+      formData.append("tags", JSON.stringify(tags));
 
-            tags,
+      if (imageMode === "upload" && form.uploadedMediaFile) {
+        formData.append("media", form.uploadedMediaFile);
+      }
 
-            media,
-
-            status:
-              "published",
-          }
+      if (imageMode === "url" && urlMedia) {
+        formData.append(
+          "media",
+          JSON.stringify([
+            {
+              url: urlMedia,
+              type: getMediaType(urlMedia),
+            },
+          ])
         );
+      }
 
-      const result =
-        response.data;
+      const response = await api.post("/posts", formData);
+
+      const result = response.data;
 
       if (!result.success) {
         throw new Error(result.message || "Create post failed");
@@ -292,8 +329,8 @@ export default function CreatePostPage() {
             Share Your <span>Creative Work</span>
           </h1>
           <p>
-            Compose a polished portfolio post, attach an image by URL or from your computer, then
-            publish it straight to the feed.
+            Compose a polished portfolio post, attach an image by URL or from
+            your computer, then publish it straight to the feed.
           </p>
         </aside>
 
@@ -302,119 +339,140 @@ export default function CreatePostPage() {
             <div className="form-empty-state">
               <h2>Please login to continue</h2>
               <p className="mt-3 text-slate-600">
-                You can explore public posts as a guest, but creating posts requires an account.
+                You can explore public posts as a guest, but creating posts
+                requires an account.
               </p>
               <a className="primary-button mt-6" href="/auth?mode=login">
                 Login
               </a>
             </div>
           ) : (
-          <form className="composer-form" onSubmit={handleSubmit}>
-            <div className="field-grid two">
-              <label>
-                <span>Title</span>
-                <input
-                  minLength={3}
-                  onChange={(event) => updateField("title", event.target.value)}
-                  placeholder="Mobile banking app redesign"
-                  required
-                  type="text"
-                  value={form.title}
-                />
-              </label>
+            <form className="composer-form" onSubmit={handleSubmit}>
+              <div className="field-grid two">
+                <label>
+                  <span>Title</span>
+                  <input
+                    minLength={3}
+                    onChange={(event) =>
+                      updateField("title", event.target.value)
+                    }
+                    placeholder="Mobile banking app redesign"
+                    required
+                    type="text"
+                    value={form.title}
+                  />
+                </label>
 
-              <label>
-                <span>Author</span>
-                <input
-                  minLength={2}
-                  onChange={(event) => updateField("authorName", event.target.value)}
-                  placeholder={FALLBACK_AUTHOR}
-                  required
-                  type="text"
-                  value={form.authorName}
-                />
-              </label>
-            </div>
-
-            <label>
-              <span>Content</span>
-              <textarea
-                minLength={10}
-                onChange={(event) => updateField("content", event.target.value)}
-                placeholder="Write a short story about the concept, style, and design process..."
-                required
-                rows={6}
-                value={form.content}
-              />
-            </label>
-
-            <div className="image-picker">
-              <div className="image-picker-tabs">
-                <button
-                  className={imageMode === "url" ? "active" : ""}
-                  onClick={() => setImageMode("url")}
-                  type="button"
-                >
-                  <FiLink /> Image URL
-                </button>
-                <button
-                  className={imageMode === "upload" ? "active" : ""}
-                  onClick={() => setImageMode("upload")}
-                  type="button"
-                >
-                  <FiUpload /> Upload
-                </button>
+                <label>
+                  <span>Author</span>
+                  <input
+                    minLength={2}
+                    onChange={(event) =>
+                      updateField("authorName", event.target.value)
+                    }
+                    placeholder={FALLBACK_AUTHOR}
+                    required
+                    type="text"
+                    value={form.authorName}
+                  />
+                </label>
               </div>
 
-              {imageMode === "url" ? (
-                <label>
-                  <span>Paste image link</span>
-                  <div className="input-with-icon">
-                    <FiImage />
+              <label>
+                <span>Content</span>
+                <textarea
+                  minLength={10}
+                  onChange={(event) =>
+                    updateField("content", event.target.value)
+                  }
+                  placeholder="Write a short story about the concept, style, and design process..."
+                  required
+                  rows={6}
+                  value={form.content}
+                />
+              </label>
+
+              <div className="image-picker">
+                <div className="image-picker-tabs">
+                  <button
+                    className={imageMode === "url" ? "active" : ""}
+                    onClick={() => setImageMode("url")}
+                    type="button"
+                  >
+                    <FiLink /> Image URL
+                  </button>
+                  <button
+                    className={imageMode === "upload" ? "active" : ""}
+                    onClick={() => setImageMode("upload")}
+                    type="button"
+                  >
+                    <FiUpload /> Upload
+                  </button>
+                </div>
+
+                {imageMode === "url" ? (
+                  <label>
+                    <span>Paste image link</span>
+                    <div className="input-with-icon">
+                      <FiImage />
+                      <input
+                        onChange={(event) =>
+                          updateField("imageUrl", event.target.value)
+                        }
+                        placeholder="https://example.com/work.jpg or video.mp4"
+                        type="url"
+                        value={form.imageUrl}
+                      />
+                    </div>
+                    {hasUnsupportedMediaUrl && (
+                      <small className="image-url-help">
+                        Paste a direct image/video URL. Examples: .jpg, .png,
+                        .webp, .mp4, .webm.
+                      </small>
+                    )}
+                    {urlMedia && urlMedia !== form.imageUrl.trim() && (
+                      <small className="image-url-help success">
+                        Found the direct media URL from your pasted link.
+                      </small>
+                    )}
+                  </label>
+                ) : (
+                  <label className="upload-drop">
+                    <FiUpload />
+                    <strong>Choose image or video from your computer</strong>
+                    <small>
+                      PNG, JPG, WebP, MP4, WebM. Upload file dưới 8MB; video lớn
+                      dùng URL.
+                    </small>
                     <input
-                      onChange={(event) => updateField("imageUrl", event.target.value)}
-                      placeholder="https://example.com/work.jpg or video.mp4"
-                      type="url"
-                      value={form.imageUrl}
+                      accept="image/*,video/*"
+                      onChange={handleMediaUpload}
+                      type="file"
                     />
-                  </div>
-                  {hasUnsupportedMediaUrl && (
-                    <small className="image-url-help">
-                      Paste a direct image/video URL. Examples: .jpg, .png, .webp, .mp4, .webm.
-                    </small>
-                  )}
-                  {urlMedia && urlMedia !== form.imageUrl.trim() && (
-                    <small className="image-url-help success">
-                      Found the direct media URL from your pasted link.
-                    </small>
-                  )}
-                </label>
-              ) : (
-                <label className="upload-drop">
-                  <FiUpload />
-                  <strong>Choose image or video from your computer</strong>
-                  <small>PNG, JPG, WebP, MP4, WebM. Upload file dưới 8MB; video lớn dùng URL.</small>
-                  <input accept="image/*,video/*" onChange={handleMediaUpload} type="file" />
-                </label>
-              )}
-            </div>
+                  </label>
+                )}
+              </div>
 
-            <label>
-              <span>Tags</span>
-              <input
-                onChange={(event) => updateField("tags", event.target.value)}
-                placeholder="UI/UX, Branding, Mobile"
-                type="text"
-                value={form.tags}
-              />
-            </label>
+              <label>
+                <span>Tags</span>
+                <input
+                  onChange={(event) => updateField("tags", event.target.value)}
+                  placeholder="UI/UX, Branding, Mobile"
+                  type="text"
+                  value={form.tags}
+                />
+              </label>
 
-            {error && <p className="form-error">{error}</p>}
+              {error && <p className="form-error">{error}</p>}
 
-            <button className="primary-button publish-button gap-3" disabled={isSubmitting} type="submit">
-              <FiSend /> {isSubmitting ? "Publishing..." : "Publish Post"}
-            </button>
-          </form>
+              <button
+                className="primary-button publish-button gap-3"
+                disabled={isSubmitting}
+                type="submit"
+              >
+                <FiSend /> {isSubmitting ? "Publishing..." : "Publish Post"}
+              </button>
+            </form>
           )}
 
           <article className="post-preview">
@@ -423,22 +481,31 @@ export default function CreatePostPage() {
                 <div className="preview-placeholder">
                   <FiAlertCircle />
                   <strong>Cannot preview this media link</strong>
-                  <span>Paste a direct image/video URL or upload from your computer.</span>
+                  <span>
+                    Paste a direct image/video URL or upload from your computer.
+                  </span>
                 </div>
               ) : previewMediaType === "video" ? (
-                <video controls src={previewMedia} />
+                <video controls preload="metadata" src={previewMedia} />
               ) : (
                 <img
                   alt="Post preview"
                   onError={() => setPreviewError(true)}
                   src={previewMedia}
+                  loading="lazy"
+                  decoding="async"
                 />
               )}
             </div>
             <div className="preview-body">
-              <p className="preview-author">{form.authorName || FALLBACK_AUTHOR}</p>
+              <p className="preview-author">
+                {form.authorName || FALLBACK_AUTHOR}
+              </p>
               <h2>{form.title || "Your post title appears here"}</h2>
-              <p>{form.content || "Your content preview will appear while you are typing."}</p>
+              <p>
+                {form.content ||
+                  "Your content preview will appear while you are typing."}
+              </p>
               <div>
                 {form.tags
                   .split(",")

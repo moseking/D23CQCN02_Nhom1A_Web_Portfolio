@@ -46,6 +46,8 @@ export interface Post {
 
   visible: boolean;
 
+  hiddenByBan?: boolean;
+
   createdAt: string;
 }
 

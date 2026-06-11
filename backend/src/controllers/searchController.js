@@ -18,6 +18,12 @@ const searchAll = async (req, res) => {
     const regex = new RegExp(keyword, "i");
 
     const posts = await Post.find({
+      visible: {
+        $ne: false,
+      },
+      status: {
+        $ne: "draft",
+      },
       $or: [
         { title: regex },
         { content: regex },
@@ -30,6 +36,16 @@ const searchAll = async (req, res) => {
 
     const users = await User.find({
       username: regex,
+      $or: [
+        {
+          status: "active",
+        },
+        {
+          status: {
+            $exists: false,
+          },
+        },
+      ],
     })
       .select("username avatar bio followers")
       .limit(10);

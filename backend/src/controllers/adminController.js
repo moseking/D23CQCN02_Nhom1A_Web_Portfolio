@@ -7,6 +7,9 @@ const Post =
 const Comment =
   require("../models/Comment");
 
+const Notification =
+  require("../models/Notification");
+
 const toCategorySlug = (value) =>
   String(value || "")
     .trim()
@@ -153,13 +156,63 @@ const toggleBanUser =
           });
       }
 
-      user.status =
+      const isBanning =
         user.status ===
-        "active"
+        "active";
+
+      user.status =
+        isBanning
           ? "banned"
           : "active";
 
       await user.save();
+
+      const postOwnerFilter = {
+        $or: [
+          {
+            author:
+              user._id,
+          },
+          {
+            authorName: {
+              $regex:
+                `^${escapeRegex(
+                  user.username
+                )}$`,
+              $options:
+                "i",
+            },
+          },
+        ],
+      };
+
+      if (isBanning) {
+        await Post.updateMany(
+          {
+            ...postOwnerFilter,
+            visible: true,
+          },
+          {
+            $set: {
+              visible: false,
+              hiddenByBan: true,
+            },
+          }
+        );
+      } else {
+        await Post.updateMany(
+          {
+            ...postOwnerFilter,
+            hiddenByBan: true,
+          },
+          {
+            $set: {
+              visible: true,
+              hiddenByBan: false,
+            },
+          }
+        );
+      }
 
       const safeUser =
         await User.findById(
@@ -256,6 +309,9 @@ const togglePostVisibility =
       post.visible =
         !post.visible;
 
+      post.hiddenByBan =
+        false;
+
       await post.save();
 
       res.json(post);
@@ -272,11 +328,26 @@ const togglePostVisibility =
 const deletePost =
   async (req, res) => {
     try {
-      await Post.findByIdAndDelete(
+      const post =
+        await Post.findByIdAndDelete(
         req.params.id
       );
 
+      if (!post) {
+        return res
+          .status(404)
+          .json({
+            message:
+              "Post not found",
+          });
+      }
+
       await Comment.deleteMany({
+        post:
+          req.params.id,
+      });
+
+      await Notification.deleteMany({
         post:
           req.params.id,
       });

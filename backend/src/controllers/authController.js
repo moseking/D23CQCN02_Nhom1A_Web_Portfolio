@@ -15,6 +15,20 @@ const escapeRegex = (value) =>
 
 const VERIFY_OTP_EXPIRE_MINUTES = 5;
 
+const PASSWORD_MIN_LENGTH = 8;
+
+const validatePassword = (password) => {
+  if (!password) {
+    return "Password is required";
+  }
+
+  if (String(password).length < PASSWORD_MIN_LENGTH) {
+    return `Password must be at least ${PASSWORD_MIN_LENGTH} characters`;
+  }
+
+  return "";
+};
+
 const createOtp = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
@@ -138,16 +152,25 @@ const register = async (req, res) => {
     const email = req.body.email?.trim().toLowerCase();
     const { password } = req.body;
 
-    console.log("Register request:", {
-      username,
-      email,
-      hasPassword: Boolean(password),
-    });
 
     if (!username || !email || !password) {
       return res.status(400).json({
         success: false,
         message: "Please fill all fields",
+      });
+    }
+    if (username.length < 3) {
+      return res.status(400).json({
+        success: false,
+        message: "Username must be at least 3 characters",
+      });
+    }
+    const passwordError = validatePassword(password);
+
+    if (passwordError) {
+      return res.status(400).json({
+        success: false,
+        message: passwordError,
       });
     }
 
@@ -220,7 +243,6 @@ const login = async (req, res) => {
         message: "Please fill all fields",
       });
     }
-
     const user = await User.findOne({
       email,
     });
@@ -236,6 +258,13 @@ const login = async (req, res) => {
     if (!isMatch) {
       return res.status(400).json({
         message: "Invalid email or password",
+      });
+    }
+
+    if (user.status === "banned") {
+      return res.status(403).json({
+        success: false,
+        message: "Account banned",
       });
     }
 
@@ -302,6 +331,13 @@ const refreshToken = async (req, res) => {
       });
     }
 
+    if (user.status === "banned") {
+      return res.status(403).json({
+        success: false,
+        message: "Account banned",
+      });
+    }
+
     const accessToken = generateToken(user._id, user.role);
 
     res.status(200).json({
@@ -354,9 +390,6 @@ const verifyEmail = async (req, res) => {
       });
     }
 
-    console.log("OTP frontend:", otp);
-    console.log("OTP DB:", user.verifyOTP);
-    console.log("isVerified before:", user.isVerified);
 
     if (!user.verifyOTP || !user.verifyOTPExpire) {
       return res.status(400).json({
@@ -387,7 +420,6 @@ const verifyEmail = async (req, res) => {
 
     await user.save();
 
-    console.log("isVerified after:", user.isVerified);
 
     res.status(200).json({
       success: true,
@@ -603,10 +635,12 @@ const resetPassword = async (req, res) => {
       });
     }
 
-    if (password.length < 6) {
+    const passwordError = validatePassword(password);
+
+    if (passwordError) {
       return res.status(400).json({
         success: false,
-        message: "Password must be at least 6 characters",
+        message: passwordError,
       });
     }
 
@@ -710,6 +744,12 @@ const getCreators = async (req, res) => {
     const creators = await Promise.all(
       users.map(async (user) => {
         const postsCount = await Post.countDocuments({
+          visible: {
+            $ne: false,
+          },
+          status: {
+            $ne: "draft",
+          },
           $or: [
             {
               author: user._id,
@@ -769,10 +809,10 @@ const updateMyProfile = async (req, res) => {
     if (typeof username === "string") {
       const cleanUsername = username.trim();
 
-      if (cleanUsername.length < 2 || cleanUsername.length > 40) {
+      if (cleanUsername.length < 3 || cleanUsername.length > 40) {
         return res.status(400).json({
           success: false,
-          message: "Username must be between 2 and 40 characters",
+          message: "Username must be between 3 and 40 characters",
         });
       }
 

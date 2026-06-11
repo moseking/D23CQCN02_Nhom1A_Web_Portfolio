@@ -43,7 +43,7 @@ const createComment = async (req, res, next) => {
 
     const post = await Post.findById(postId);
 
-    if (!post) {
+    if (!post || post.visible === false) {
       return res.status(404).json({
         success: false,
         message: "Post not found",

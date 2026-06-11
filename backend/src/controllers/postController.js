@@ -1,6 +1,8 @@
 const mongoose = require("mongoose");
 const Post = require("../models/Post");
 const User = require("../models/User");
+const Comment = require("../models/Comment");
+const Notification = require("../models/Notification");
 const createNotification = require("../utils/createNotification");
 const deleteCloudinaryMedia = require("../utils/deleteCloudinaryMedia");
 const cloudinary = require("../config/cloudinary");
@@ -80,6 +82,16 @@ const getPostCategories = async (req, res, next) => {
   try {
     const tags = await Post.aggregate([
       {
+        $match: {
+          visible: {
+            $ne: false,
+          },
+          status: {
+            $ne: "draft",
+          },
+        },
+      },
+      {
         $unwind: "$tags",
       },
       {
@@ -126,6 +138,12 @@ const getPostById = async (req, res, next) => {
       .lean();
 
     if (!post) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Post not found" });
+    }
+
+    if (post.visible === false) {
       return res
         .status(404)
         .json({ success: false, message: "Post not found" });
@@ -364,6 +382,17 @@ const deletePost = async (req, res, next) => {
 
     await post.deleteOne();
 
+    await Promise.all([
+      Comment.deleteMany({
+        post:
+          post._id,
+      }),
+      Notification.deleteMany({
+        post:
+          post._id,
+      }),
+    ]);
+
     const io = req.app.get("io");
 
     if (io) {
@@ -399,7 +428,7 @@ const toggleLikePost = async (req, res, next) => {
 
     const post = await Post.findById(req.params.id);
 
-    if (!post) {
+    if (!post || post.visible === false) {
       return res.status(404).json({
         success: false,
         message: "Post not found",
@@ -474,7 +503,7 @@ const toggleSavePost = async (req, res, next) => {
 
     const post = await Post.findById(req.params.id);
 
-    if (!post) {
+    if (!post || post.visible === false) {
       return res.status(404).json({
         success: false,
         message: "Post not found",
@@ -542,6 +571,9 @@ const getSavedPosts = async (req, res, next) => {
 
     const posts = await Post.find({
       savedBy: userId,
+      visible: {
+        $ne: false,
+      },
     })
       .populate("author", "username avatar bio")
       .sort({ createdAt: -1 })

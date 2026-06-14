@@ -21,7 +21,7 @@ const userSchema =
       password: {
         type: String,
         required: true,
-        minlength: 6,
+        minlength: 8,
       },
 
       avatar: {
@@ -105,6 +105,31 @@ const userSchema =
           ref: "User",
         },
       ],
+
+      isVerified: {
+        type: Boolean,
+        default: false,
+      },
+
+      verifyOTP: {
+        type: String,
+        default: "",
+      },
+
+      verifyOTPExpire: {
+        type: Date,
+        default: null,
+      },
+
+      resetPasswordOtp: {
+        type: String,
+        default: "",
+      },
+
+      resetPasswordOtpExpires: {
+        type: Date,
+        default: null,
+      },
     },
     {
       timestamps: true,

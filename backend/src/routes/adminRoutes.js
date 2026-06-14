@@ -1,17 +1,8 @@
-const express =
-  require("express");
+const express = require("express");
 
-const {
-  protect,
-} = require(
-  "../middleware/authMiddleware"
-);
+const { protect } = require("../middleware/authMiddleware");
 
-const {
-  adminOnly,
-} = require(
-  "../middleware/adminMiddleware"
-);
+const { adminOnly } = require("../middleware/adminMiddleware");
 
 const {
   getDashboardStats,
@@ -30,89 +21,40 @@ const {
   deleteComment,
 
   getCategories,
-} = require(
-  "../controllers/adminController"
-);
+  createCategory,
+  deleteCategory,
+} = require("../controllers/adminController");
 
-const router =
-  express.Router();
+const router = express.Router();
 
+router.use(protect, adminOnly);
 
+router.get("/stats", getDashboardStats);
 
-router.use(
-  protect,
-  adminOnly
-);
+router.get("/users", getUsers);
 
+router.patch("/users/:id/role", changeUserRole);
 
+router.patch("/users/:id/ban", toggleBanUser);
 
-router.get(
-  "/stats",
-  getDashboardStats
-);
+router.delete("/users/:id", deleteUser);
 
+router.get("/posts", getPosts);
 
+router.patch("/posts/:id/visibility", togglePostVisibility);
 
-router.get(
-  "/users",
-  getUsers
-);
+router.delete("/posts/:id", deletePost);
 
-router.patch(
-  "/users/:id/role",
-  changeUserRole
-);
+router.get("/comments", getComments);
 
-router.patch(
-  "/users/:id/ban",
-  toggleBanUser
-);
+router.patch("/comments/:id/visibility", toggleCommentVisibility);
 
-router.delete(
-  "/users/:id",
-  deleteUser
-);
+router.delete("/comments/:id", deleteComment);
 
+router.get("/categories", getCategories);
 
+router.post("/categories", createCategory);
 
-router.get(
-  "/posts",
-  getPosts
-);
+router.delete("/categories/:slug", deleteCategory);
 
-router.patch(
-  "/posts/:id/visibility",
-  togglePostVisibility
-);
-
-router.delete(
-  "/posts/:id",
-  deletePost
-);
-
-
-
-router.get(
-  "/comments",
-  getComments
-);
-
-router.patch(
-  "/comments/:id/visibility",
-  toggleCommentVisibility
-);
-
-router.delete(
-  "/comments/:id",
-  deleteComment
-);
-
-router.get(
-  "/categories",
-  getCategories
-);
-
-
-
-module.exports =
-  router;
+module.exports = router;

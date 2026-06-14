@@ -256,6 +256,11 @@ export default function UserPortfolioPage() {
   }, [isEditorOpen]);
 
   const openEditor = () => {
+    if (!isAuthenticated) {
+      setProfileError("Please login to continue");
+      return;
+    }
+
     if (!portfolio?.user.isSelf) return;
 
     setProfileError("");
@@ -284,6 +289,12 @@ export default function UserPortfolioPage() {
 
   const handleProfileSave = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    if (!isAuthenticated) {
+      setProfileError("Please login to continue");
+      return;
+    }
+
     if (!portfolio?.user.isSelf) return;
 
     try {
@@ -340,13 +351,15 @@ export default function UserPortfolioPage() {
     }
 
     if (!isAuthenticated) {
-      setFollowError("Please login to follow this creator.");
+      setFollowError("Please login to continue");
       return;
     }
 
     try {
       setIsUpdatingFollow(true);
-      const response = await api.post(`/auth/users/${portfolio.user._id}/follow`);
+      const response = await api.post(
+        `/auth/users/${portfolio.user._id}/follow`
+      );
       const data = response.data.data;
 
       setPortfolio((current) =>
@@ -431,9 +444,13 @@ export default function UserPortfolioPage() {
 
             <div>
               <p className="eyebrow">Personal Portfolio</p>
-              <h1>{portfolio.user.portfolio?.title || portfolio.user.username}</h1>
+              <h1>
+                {portfolio.user.portfolio?.title || portfolio.user.username}
+              </h1>
               {portfolio.user.portfolio?.title && (
-                <p className="portfolio-display-name">@{portfolio.user.username}</p>
+                <p className="portfolio-display-name">
+                  @{portfolio.user.username}
+                </p>
               )}
               <p className="portfolio-bio">
                 {portfolio.user.bio ||
@@ -456,7 +473,11 @@ export default function UserPortfolioPage() {
 
               <div className="portfolio-actions">
                 {portfolio.user.isSelf ? (
-                  <button className="primary-button gap-2" onClick={openEditor} type="button">
+                  <button
+                    className="primary-button gap-2"
+                    onClick={openEditor}
+                    type="button"
+                  >
                     <FiEdit3 /> Edit Portfolio
                   </button>
                 ) : (
@@ -466,12 +487,16 @@ export default function UserPortfolioPage() {
                     onClick={handleFollow}
                     type="button"
                   >
-                    {portfolio.user.isFollowing ? <FiUserCheck /> : <FiUserPlus />}
+                    {portfolio.user.isFollowing ? (
+                      <FiUserCheck />
+                    ) : (
+                      <FiUserPlus />
+                    )}
                     {isUpdatingFollow
                       ? "Updating..."
                       : portfolio.user.isFollowing
-                        ? "Following"
-                        : "Follow"}
+                      ? "Following"
+                      : "Follow"}
                   </button>
                 )}
 
@@ -505,9 +530,21 @@ export default function UserPortfolioPage() {
         <div className="mx-auto grid max-w-[1560px] gap-6 lg:grid-cols-[0.78fr_1.22fr]">
           <aside className="portfolio-side">
             <div className="portfolio-stats">
-              <StatBlock icon={<FiGrid />} label="Posts" value={portfolio.stats.postsCount} />
-              <StatBlock icon={<FiHeart />} label="Likes" value={portfolio.stats.likesCount} />
-              <StatBlock icon={<FiUsers />} label="Followers" value={portfolio.stats.followersCount} />
+              <StatBlock
+                icon={<FiGrid />}
+                label="Posts"
+                value={portfolio.stats.postsCount}
+              />
+              <StatBlock
+                icon={<FiHeart />}
+                label="Likes"
+                value={portfolio.stats.likesCount}
+              />
+              <StatBlock
+                icon={<FiUsers />}
+                label="Followers"
+                value={portfolio.stats.followersCount}
+              />
             </div>
 
             <div className="portfolio-panel">
@@ -598,16 +635,26 @@ export default function UserPortfolioPage() {
                   } as CSSProperties
                 }
               >
-                <div className={`portfolio-editor-preview-card ${editorTheme.animation}`}>
+                <div
+                  className={`portfolio-editor-preview-card ${editorTheme.animation}`}
+                >
                   <img
                     alt={profileForm.username || portfolio.user.username}
-                    src={profileForm.avatar || portfolio.user.avatar || DEFAULT_AVATAR}
+                    src={
+                      profileForm.avatar ||
+                      portfolio.user.avatar ||
+                      DEFAULT_AVATAR
+                    }
                   />
                 </div>
 
                 <div className="portfolio-editor-preview-copy">
                   <span>{profileForm.layout}</span>
-                  <h3>{profileForm.title || profileForm.username || portfolio.user.username}</h3>
+                  <h3>
+                    {profileForm.title ||
+                      profileForm.username ||
+                      portfolio.user.username}
+                  </h3>
                   <p>
                     {profileForm.bio ||
                       "Add a short bio so visitors understand your style and creative focus."}
@@ -617,7 +664,9 @@ export default function UserPortfolioPage() {
                 <div className="portfolio-editor-preview-tags">
                   <span>{profileForm.location || "Location"}</span>
                   <span>{profileForm.theme || "Auto effect"}</span>
-                  <span>{profileForm.website ? "Website ready" : "No website"}</span>
+                  <span>
+                    {profileForm.website ? "Website ready" : "No website"}
+                  </span>
                 </div>
               </section>
 
@@ -626,7 +675,10 @@ export default function UserPortfolioPage() {
                   <span>01</span>
                   <div>
                     <h3>Display</h3>
-                    <p>These details are shown first when someone opens your portfolio.</p>
+                    <p>
+                      These details are shown first when someone opens your
+                      portfolio.
+                    </p>
                   </div>
                 </div>
 
@@ -635,7 +687,9 @@ export default function UserPortfolioPage() {
                     Display name
                     <input
                       maxLength={40}
-                      onChange={(event) => updateProfileField("username", event.target.value)}
+                      onChange={(event) =>
+                        updateProfileField("username", event.target.value)
+                      }
                       value={profileForm.username}
                     />
                   </label>
@@ -644,7 +698,9 @@ export default function UserPortfolioPage() {
                     Portfolio title
                     <input
                       maxLength={80}
-                      onChange={(event) => updateProfileField("title", event.target.value)}
+                      onChange={(event) =>
+                        updateProfileField("title", event.target.value)
+                      }
                       placeholder="Creative director, UI artist..."
                       value={profileForm.title}
                     />
@@ -653,7 +709,9 @@ export default function UserPortfolioPage() {
                   <label className="wide">
                     Avatar URL
                     <input
-                      onChange={(event) => updateProfileField("avatar", event.target.value)}
+                      onChange={(event) =>
+                        updateProfileField("avatar", event.target.value)
+                      }
                       placeholder="https://..."
                       value={profileForm.avatar}
                     />
@@ -675,7 +733,9 @@ export default function UserPortfolioPage() {
                     Bio
                     <textarea
                       maxLength={280}
-                      onChange={(event) => updateProfileField("bio", event.target.value)}
+                      onChange={(event) =>
+                        updateProfileField("bio", event.target.value)
+                      }
                       rows={4}
                       value={profileForm.bio}
                     />
@@ -685,7 +745,9 @@ export default function UserPortfolioPage() {
                     Location
                     <input
                       maxLength={80}
-                      onChange={(event) => updateProfileField("location", event.target.value)}
+                      onChange={(event) =>
+                        updateProfileField("location", event.target.value)
+                      }
                       value={profileForm.location}
                     />
                   </label>
@@ -693,7 +755,9 @@ export default function UserPortfolioPage() {
                   <label>
                     Website
                     <input
-                      onChange={(event) => updateProfileField("website", event.target.value)}
+                      onChange={(event) =>
+                        updateProfileField("website", event.target.value)
+                      }
                       placeholder="https://portfolio.com"
                       value={profileForm.website}
                     />
@@ -712,12 +776,18 @@ export default function UserPortfolioPage() {
 
                 <div className="portfolio-choice-grid">
                   {[
-                    { value: "showcase", label: "Showcase", note: "Hero stack" },
+                    {
+                      value: "showcase",
+                      label: "Showcase",
+                      note: "Hero stack",
+                    },
                     { value: "grid", label: "Gallery", note: "Clean grid" },
                     { value: "studio", label: "Studio", note: "Profile first" },
                   ].map((option) => (
                     <button
-                      className={profileForm.layout === option.value ? "selected" : ""}
+                      className={
+                        profileForm.layout === option.value ? "selected" : ""
+                      }
                       key={option.value}
                       onClick={() => updateProfileField("layout", option.value)}
                       type="button"
@@ -741,7 +811,9 @@ export default function UserPortfolioPage() {
 
                   {themes.map((item) => (
                     <button
-                      className={profileForm.theme === item.name ? "selected" : ""}
+                      className={
+                        profileForm.theme === item.name ? "selected" : ""
+                      }
                       key={item.name}
                       onClick={() => updateProfileField("theme", item.name)}
                       type="button"
@@ -763,7 +835,11 @@ export default function UserPortfolioPage() {
                 >
                   <FiX /> Cancel
                 </button>
-                <button className="primary-button gap-2" disabled={isSavingProfile} type="submit">
+                <button
+                  className="primary-button gap-2"
+                  disabled={isSavingProfile}
+                  type="submit"
+                >
                   <FiSave /> {isSavingProfile ? "Saving..." : "Save Portfolio"}
                 </button>
               </div>
@@ -807,7 +883,10 @@ function PortfolioPreview({
             {media?.type === "video" ? (
               <video src={media.url} muted playsInline />
             ) : (
-              <img alt={post.title || "Portfolio preview"} src={media?.url || DEFAULT_POST_IMAGE} />
+              <img
+                alt={post.title || "Portfolio preview"}
+                src={media?.url || DEFAULT_POST_IMAGE}
+              />
             )}
           </article>
         );
@@ -848,7 +927,10 @@ function PortfolioPostCard({
     media?.type === "video" ? (
       <video src={media.url} controls />
     ) : (
-      <img alt={post.title || "Portfolio post"} src={media?.url || DEFAULT_POST_IMAGE} />
+      <img
+        alt={post.title || "Portfolio post"}
+        src={media?.url || DEFAULT_POST_IMAGE}
+      />
     );
 
   return (
@@ -856,16 +938,9 @@ function PortfolioPostCard({
       className="portfolio-post-card reveal"
       style={{ "--delay": `${index * 70}ms` } as CSSProperties}
     >
-      {canEdit ? (
-        <a className="portfolio-post-media" href={`/edit-post/${post._id}`}>
-          {mediaContent}
-        </a>
-      ) : (
-        <div className="portfolio-post-media" aria-label="Portfolio post preview">
-          {mediaContent}
-        </div>
-      )}
-
+      <a className="portfolio-post-media" href={`/posts/${post._id}`}>
+        {mediaContent}
+      </a>
       <div className="portfolio-post-body">
         <div className="portfolio-post-topline">
           <span>{formatDate(post.createdAt)}</span>
@@ -880,7 +955,9 @@ function PortfolioPostCard({
           )}
         </div>
 
-        <h3>{post.title || "Untitled Project"}</h3>
+        <h3>
+          <a href={`/posts/${post._id}`}>{post.title || "Untitled Project"}</a>
+        </h3>
         {post.content && <p>{post.content}</p>}
 
         <div className="portfolio-tags compact">

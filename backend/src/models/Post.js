@@ -90,7 +90,11 @@ const postSchema = new mongoose.Schema(
     visible: {
       type: Boolean,
       default: true,
-    }, 
+    },
+    hiddenByBan: {
+      type: Boolean,
+      default: false,
+    },
       },
   { timestamps: true }
 );

@@ -3,8 +3,9 @@ const cloudinary = require("../config/cloudinary");
 const upload = require("../middleware/uploadMiddleware");
 
 const router = express.Router();
+const { protect } = require("../middleware/authMiddleware");
 
-router.post("/", upload.single("media"), async (req, res) => {
+router.post("/", protect, upload.single("media"), async (req, res) => {
   try {
     res.status(200).json({
       success: true,
@@ -21,7 +22,7 @@ router.post("/", upload.single("media"), async (req, res) => {
   }
 });
 
-router.delete("/", async (req, res) => {
+router.delete("/", protect, async (req, res) => {
   try {
     const { publicId, resourceType = "image" } = req.body;
 

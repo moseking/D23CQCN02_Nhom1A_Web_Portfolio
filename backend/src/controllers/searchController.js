@@ -1,53 +1,70 @@
-const User = require("../models/User");
 const Post = require("../models/Post");
+const User = require("../models/User");
 
-exports.search = async (req, res) => {
+const searchAll = async (req, res) => {
   try {
-    const { query, type, tag } = req.query;
+    const keyword = req.query.q?.trim();
 
-    let users = [];
-    let posts = [];
-
-    if (type === "user" || !type) {
-      users = await User.find({
-        $or: [
-          { username: { $regex: query || "", $options: "i" } },
-          { bio: { $regex: query || "", $options: "i" } },
-        ],
-      }).select("username avatar bio");
+    if (!keyword) {
+      return res.json({
+        success: true,
+        data: {
+          posts: [],
+          users: [],
+        },
+      });
     }
 
-    if (type === "post" || !type) {
-      const postFilter = {};
+    const regex = new RegExp(keyword, "i");
 
-      if (query) {
-        postFilter.$or = [
-          { title: { $regex: query, $options: "i" } },
-          { content: { $regex: query, $options: "i" } },
-          { authorName: { $regex: query, $options: "i" } },
-          { tags: { $regex: query, $options: "i" } },
-        ];
-      }
+    const posts = await Post.find({
+      visible: {
+        $ne: false,
+      },
+      status: {
+        $ne: "draft",
+      },
+      $or: [
+        { title: regex },
+        { content: regex },
+        { tags: regex },
+        { authorName: regex },
+      ],
+    })
+      .sort({ createdAt: -1 })
+      .limit(20);
 
-      if (tag) {
-        postFilter.tags = { $regex: tag, $options: "i" };
-      }
+    const users = await User.find({
+      username: regex,
+      $or: [
+        {
+          status: "active",
+        },
+        {
+          status: {
+            $exists: false,
+          },
+        },
+      ],
+    })
+      .select("username avatar bio followers")
+      .limit(10);
 
-      posts = await Post.find(postFilter)
-        .populate("author", "username avatar")
-        .sort({ createdAt: -1 });
-    }
-
-    res.status(200).json({
+    res.json({
       success: true,
-      users,
-      posts,
+      data: {
+        posts,
+        users,
+      },
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: "Search failed",
-      error: error.message,
+      message: error.message,
     });
   }
+};
+
+module.exports = {
+  searchAll,
 };

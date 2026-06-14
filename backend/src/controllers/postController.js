@@ -1,7 +1,12 @@
 const mongoose = require("mongoose");
 const Post = require("../models/Post");
 const User = require("../models/User");
+const Comment = require("../models/Comment");
+const Notification = require("../models/Notification");
 const createNotification = require("../utils/createNotification");
+const deleteCloudinaryMedia = require("../utils/deleteCloudinaryMedia");
+const cloudinary = require("../config/cloudinary");
+const Category = require("../models/Category");
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
@@ -40,13 +45,24 @@ const getPosts = async (req, res, next) => {
     const filter = buildPostFilter(req.query);
 
     const [posts, total] = await Promise.all([
-      Post.find(filter)
+      Post.find({
+        ...filter,
+        visible: true,
+      })
         .populate("author", "username avatar bio")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .lean(),
-      Post.countDocuments(filter),
+      Post.countDocuments({
+        ...filter,
+        visible: {
+          $ne: false,
+        },
+        status: {
+          $ne: "draft",
+        },
+      }),
     ]);
 
     res.json({
@@ -58,6 +74,80 @@ const getPosts = async (req, res, next) => {
         total,
         totalPages: Math.ceil(total / limit),
       },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const toCategorySlug = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+const getPostCategories = async (req, res, next) => {
+  try {
+    const tags = await Post.aggregate([
+      {
+        $match: {
+          visible: {
+            $ne: false,
+          },
+          status: {
+            $ne: "draft",
+          },
+        },
+      },
+      {
+        $unwind: "$tags",
+      },
+      {
+        $group: {
+          _id: "$tags",
+          postsCount: {
+            $sum: 1,
+          },
+        },
+      },
+    ]);
+
+    const savedCategories = await Category.find().sort({ name: 1 }).lean();
+
+    const countBySlug = new Map(
+      tags.map((tag) => [toCategorySlug(tag._id), tag.postsCount])
+    );
+
+    const merged = new Map();
+
+    savedCategories.forEach((category) => {
+      merged.set(category.slug, {
+        _id: category._id,
+        name: category.name,
+        slug: category.slug,
+        postsCount: countBySlug.get(category.slug) || 0,
+      });
+    });
+
+    tags.forEach((tag) => {
+      const slug = toCategorySlug(tag._id);
+
+      if (!merged.has(slug)) {
+        merged.set(slug, {
+          _id: slug,
+          name: tag._id,
+          slug,
+          postsCount: tag.postsCount,
+        });
+      }
+    });
+
+    res.json({
+      success: true,
+      categories: Array.from(merged.values()).sort((a, b) =>
+        a.name.localeCompare(b.name)
+      ),
     });
   } catch (error) {
     next(error);
@@ -82,59 +172,125 @@ const getPostById = async (req, res, next) => {
         .json({ success: false, message: "Post not found" });
     }
 
+    if (post.visible === false) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Post not found" });
+    }
+
     res.json({ success: true, data: post });
   } catch (error) {
     next(error);
   }
 };
 
-/* const createPost = async (req, res, next) => {
-  try {
-    const userId = req.user?._id || req.user?.id;
+const uploadFileToCloudinary = async (file) => {
+  const base64File = `data:${file.mimetype};base64,${file.buffer.toString(
+    "base64"
+  )}`;
 
-    const post = await Post.create({
-      ...req.body,
-      author: userId || req.body.author || null,
-      authorName: req.body.authorName || req.user?.username || "Anonymous",
-    });
+  const result = await cloudinary.uploader.upload(base64File, {
+    folder: "web-portfolio/posts",
+    resource_type: "auto",
+  });
 
-    res.status(201).json({
-      success: true,
-      data: post,
-    });
-  } catch (error) {
-    next(error);
+  return {
+    url: result.secure_url,
+    publicId: result.public_id,
+    type: result.resource_type,
+  };
+};
+
+const parseArrayInput = (value) => {
+  if (!value) return [];
+
+  if (Array.isArray(value)) return value;
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return value
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
   }
-}; */
+
+  return [];
+};
+
+const formatTag = (tag) => {
+  return String(tag)
+    .trim()
+    .replace(/\s+/g, " ")
+    .split(" ")
+    .map((word) => {
+      if (!word) return "";
+
+      if (word.includes("/")) {
+        return word
+          .split("/")
+          .map((part) =>
+            part
+              ? part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
+              : ""
+          )
+          .join("/");
+      }
+
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(" ");
+};
+
+const normalizeTags = (tags) => {
+  return tags.map(formatTag).filter(Boolean);
+};
+
 const createPost = async (req, res, next) => {
   try {
-    const {
-      title,
-      content,
-      media,
-      tags,
-      status,
-    } = req.body;
+    const { title, content, status } = req.body;
 
-    const post =
-      await Post.create({
-        title,
-        content,
-        media,
-        tags,
-        status,
-
-        author:
-          req.user.userId,
-
-        authorName:
-          req.user.username,
+    if (!req.user?.userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
       });
+    }
 
-    const author =
-      await User.findById(
-        req.user.userId
-      ).select("followers");
+    const uploadedMedia = req.files?.length
+      ? await Promise.all(req.files.map((file) => uploadFileToCloudinary(file)))
+      : [];
+
+    const bodyMedia = parseArrayInput(req.body.media);
+    const tags = normalizeTags(parseArrayInput(req.body.tags));
+
+    const post = await Post.create({
+      title: title?.trim(),
+      content: content?.trim(),
+      media: [...bodyMedia, ...uploadedMedia],
+      tags,
+      status: status || "published",
+
+      author: req.user.userId,
+      authorName: req.user.username || "Anonymous",
+    });
+
+    const populatedPost = await Post.findById(post._id)
+      .populate("author", "username avatar bio")
+      .lean();
+
+    const io = req.app.get("io");
+
+    if (io) {
+      io.emit("new_post", {
+        post: populatedPost,
+      });
+    }
+
+    const author = await User.findById(req.user.userId).select("followers");
 
     if (author?.followers?.length) {
       await Promise.all(
@@ -152,7 +308,7 @@ const createPost = async (req, res, next) => {
 
     res.status(201).json({
       success: true,
-      data: post,
+      data: populatedPost,
     });
   } catch (error) {
     next(error);
@@ -177,7 +333,8 @@ const updatePost = async (req, res, next) => {
 
     const isOwner =
       post.author?.toString() === req.user.userId.toString() ||
-      post.authorName.trim().toLowerCase() === req.user.username.trim().toLowerCase();
+      post.authorName.trim().toLowerCase() ===
+        req.user.username.trim().toLowerCase();
 
     if (!isOwner) {
       return res.status(403).json({
@@ -186,18 +343,42 @@ const updatePost = async (req, res, next) => {
       });
     }
 
-    const updateData = {
-      title: req.body.title,
-      content: req.body.content,
-      media: req.body.media,
-      tags: req.body.tags,
-      status: req.body.status,
-    };
+    const updateData = {};
 
-    const updatedPost = await Post.findByIdAndUpdate(req.params.id, updateData, {
-      new: true,
-      runValidators: true,
-    });
+    if (req.body.title !== undefined) updateData.title = req.body.title;
+    if (req.body.content !== undefined) updateData.content = req.body.content;
+    const uploadedMedia = req.files?.length
+      ? await Promise.all(req.files.map((file) => uploadFileToCloudinary(file)))
+      : [];
+
+    if (req.body.media !== undefined || uploadedMedia.length) {
+      const bodyMedia = parseArrayInput(req.body.media);
+      updateData.media = [...bodyMedia, ...uploadedMedia];
+    }
+    if (req.body.status !== undefined) updateData.status = req.body.status;
+
+    if (req.body.tags !== undefined) {
+      updateData.tags = normalizeTags(parseArrayInput(req.body.tags));
+    }
+
+    const updatedPost = await Post.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      {
+        new: true,
+        runValidators: true,
+      }
+    )
+      .populate("author", "username avatar bio")
+      .lean();
+
+    const io = req.app.get("io");
+
+    if (io) {
+      io.emit("post_updated", {
+        post: updatedPost,
+      });
+    }
 
     res.json({ success: true, data: updatedPost });
   } catch (error) {
@@ -223,7 +404,8 @@ const deletePost = async (req, res, next) => {
 
     const isOwner =
       post.author?.toString() === req.user.userId.toString() ||
-      post.authorName.trim().toLowerCase() === req.user.username.trim().toLowerCase();
+      post.authorName.trim().toLowerCase() ===
+        req.user.username.trim().toLowerCase();
 
     if (!isOwner) {
       return res.status(403).json({
@@ -232,7 +414,26 @@ const deletePost = async (req, res, next) => {
       });
     }
 
+    await deleteCloudinaryMedia(post.media);
+
     await post.deleteOne();
+
+    await Promise.all([
+      Comment.deleteMany({
+        post: post._id,
+      }),
+      Notification.deleteMany({
+        post: post._id,
+      }),
+    ]);
+
+    const io = req.app.get("io");
+
+    if (io) {
+      io.emit("post_deleted", {
+        postId: post._id.toString(),
+      });
+    }
 
     res.json({ success: true, message: "Post deleted successfully" });
   } catch (error) {
@@ -250,9 +451,7 @@ const toggleLikePost = async (req, res, next) => {
     }
 
     const userId = req.user?.userId;
-    const userName = String(req.user.username)
-      .trim()
-      .toLowerCase();
+    const userName = String(req.user.username).trim().toLowerCase();
 
     if (!userId) {
       return res.status(401).json({
@@ -263,7 +462,7 @@ const toggleLikePost = async (req, res, next) => {
 
     const post = await Post.findById(req.params.id);
 
-    if (!post) {
+    if (!post || post.visible === false) {
       return res.status(404).json({
         success: false,
         message: "Post not found",
@@ -281,7 +480,7 @@ const toggleLikePost = async (req, res, next) => {
     } else {
       post.likes.push(userId);
 
-      if (post.author) {
+      if (post.author && post.author.toString() !== userId.toString()) {
         await createNotification(req, {
           sender: userId,
           receiver: post.author,
@@ -293,6 +492,17 @@ const toggleLikePost = async (req, res, next) => {
     }
 
     await post.save();
+
+    const io = req.app.get("io");
+
+    if (io) {
+      io.emit("new_like", {
+        postId: post._id.toString(),
+        liked: !hasLiked,
+        likesCount: post.likes.length,
+        likes: post.likes,
+      });
+    }
 
     res.json({
       success: true,
@@ -310,45 +520,64 @@ const toggleLikePost = async (req, res, next) => {
 const toggleSavePost = async (req, res, next) => {
   try {
     if (!isValidObjectId(req.params.id)) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Invalid post id" });
+      return res.status(400).json({
+        success: false,
+        message: "Invalid post id",
+      });
     }
 
-    const userName = String(req.user.username)
-      .trim()
-      .toLowerCase();
+    const userId = req.user?.userId;
 
-    if (!userName) {
-      return res
-        .status(400)
-        .json({ success: false, message: "User name is required" });
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "You must login to save this post",
+      });
     }
 
     const post = await Post.findById(req.params.id);
 
-    if (!post) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Post not found" });
-    }
-
-    const hasSaved = post.savedBy.includes(userName);
-    post.savedBy = hasSaved
-      ? post.savedBy.filter((item) => item !== userName)
-      : [...post.savedBy, userName];
-
-    if (!hasSaved && post.author) {
-      await createNotification(req, {
-        sender: req.user.userId,
-        receiver: post.author,
-        post: post._id,
-        type: "save",
-        message: "đã lưu bài viết của bạn",
+    if (!post || post.visible === false) {
+      return res.status(404).json({
+        success: false,
+        message: "Post not found",
       });
     }
 
+    const hasSaved = post.savedBy.some(
+      (id) => id.toString() === userId.toString()
+    );
+
+    if (hasSaved) {
+      post.savedBy = post.savedBy.filter(
+        (id) => id.toString() !== userId.toString()
+      );
+    } else {
+      post.savedBy.push(userId);
+
+      if (post.author && post.author.toString() !== userId.toString()) {
+        await createNotification(req, {
+          sender: userId,
+          receiver: post.author,
+          post: post._id,
+          type: "save",
+          message: "đã lưu bài viết của bạn",
+        });
+      }
+    }
+
     await post.save();
+
+    const io = req.app.get("io");
+
+    if (io) {
+      io.emit("new_save", {
+        postId: post._id.toString(),
+        saved: !hasSaved,
+        savesCount: post.savedBy.length,
+        savedBy: post.savedBy,
+      });
+    }
 
     res.json({
       success: true,
@@ -363,12 +592,47 @@ const toggleSavePost = async (req, res, next) => {
   }
 };
 
+const getSavedPosts = async (req, res, next) => {
+  try {
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "You must login to view saved posts",
+      });
+    }
+
+    const posts = await Post.find({
+      ...filter,
+      visible: {
+        $ne: false,
+      },
+      status: {
+        $ne: "draft",
+      },
+    })
+      .populate("author", "username avatar bio")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.json({
+      success: true,
+      data: posts,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getPosts,
+  getPostCategories,
   getPostById,
   createPost,
   updatePost,
   deletePost,
   toggleLikePost,
   toggleSavePost,
+  getSavedPosts,
 };

@@ -5,11 +5,16 @@ import type {
   RegisterFormValues,
 } from "../schemas/auth.schema";
 
+type RegisterRequest = Pick<
+  RegisterFormValues,
+  "username" | "email" | "password"
+>;
+
 export const authService = {
   login: async (data: LoginFormValues) =>
     api.post("/auth/login", data),
 
-  register: async (data: RegisterFormValues) =>
+  register: async (data: RegisterRequest) =>
     api.post("/auth/register", data),
 
   verifyEmail: async (

@@ -1,38 +1,42 @@
 const Notification = require("../models/Notification");
+const User = require("../models/User");
 
-const createNotification = async (
-  req,
-  { sender, receiver, post = null, type, message }
-) => {
-  if (!sender || !receiver || !type || !message) return null;
+const createNotification = async (req, data) => {
+  try {
+    const { sender, receiver, type, post, message } = data;
 
-  if (sender.toString() === receiver.toString()) return null;
+    if (!sender || !receiver || sender.toString() === receiver.toString()) {
+      return null;
+    }
 
-  const notification = await Notification.create({
-    sender,
-    receiver,
-    post,
-    type,
-    message,
-  });
+    const notification = await Notification.create({
+      sender,
+      receiver,
+      type,
+      post,
+      message,
+      isRead: false,
+    });
 
-  const populatedNotification = await Notification.findById(notification._id)
-    .populate("sender", "username avatar")
-    .populate("receiver", "username avatar")
-    .populate("post", "title content media authorName");
+    const populatedNotification = await Notification.findById(notification._id)
+      .populate("sender", "username avatar")
+      .populate("post", "title mediaUrl image");
 
-  const io = req.app.get("io");
-  const onlineUsers = req.app.get("onlineUsers");
+    const io = req.app.get("io");
+    const onlineUsers = req.app.get("onlineUsers");
 
-  if (!io || !onlineUsers) return populatedNotification;
+    const receiverSocketId = onlineUsers?.get(receiver.toString());
 
-  const receiverSocketId = onlineUsers.get(receiver.toString());
+    if (io && receiverSocketId) {
+      io.to(receiverSocketId).emit("new_notification", populatedNotification);
+      io.to(receiverSocketId).emit("notification", populatedNotification);
+    }
 
-  if (receiverSocketId) {
-    io.to(receiverSocketId).emit("new_notification", populatedNotification);
+    return populatedNotification;
+  } catch (error) {
+    console.log("Create notification error:", error);
+    return null;
   }
-
-  return populatedNotification;
 };
 
 module.exports = createNotification;

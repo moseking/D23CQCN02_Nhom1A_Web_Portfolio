@@ -2,7 +2,14 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { FiArrowLeft, FiCalendar, FiImage, FiTag, FiX } from "react-icons/fi";
+import {
+  FiArrowLeft,
+  FiArrowRight,
+  FiCalendar,
+  FiImage,
+  FiTag,
+  FiX,
+} from "react-icons/fi";
 import { api } from "../../lib/axios";
 import { socket } from "../../lib/socket";
 
@@ -120,8 +127,30 @@ export default function FeedPage() {
       try {
         setLoadingPosts(true);
 
-        const res = await api.get("/posts");
-        setPosts(res.data.data || res.data.posts || []);
+        let page = 1;
+        let totalPages = 1;
+        const allPosts: Post[] = [];
+
+        do {
+          const res = await api.get("/posts", {
+            params: {
+              page,
+              limit: 50,
+            },
+          });
+
+          const pagePosts = res.data.data || res.data.posts || [];
+          allPosts.push(...pagePosts);
+
+          totalPages = res.data.pagination?.totalPages || 1;
+          page += 1;
+        } while (page <= totalPages);
+
+        const uniquePosts = Array.from(
+          new Map(allPosts.map((post) => [post._id, post])).values()
+        );
+
+        setPosts(uniquePosts);
       } catch (error) {
         console.log("Fetch posts error:", error);
       } finally {
@@ -265,6 +294,38 @@ export default function FeedPage() {
       );
     };
 
+    const handlePostVisibilityChanged = (payload: {
+      postId: string;
+      visible: boolean;
+      post?: Post;
+    }) => {
+      if (!payload.visible) {
+        setPosts((current) =>
+          current.filter((post) => post._id !== payload.postId)
+        );
+
+        setSelectedPost((current) =>
+          current?._id === payload.postId ? null : current
+        );
+
+        return;
+      }
+
+      if (payload.post) {
+        setPosts((current) => {
+          const existed = current.some((post) => post._id === payload.postId);
+
+          if (existed) {
+            return current.map((post) =>
+              post._id === payload.postId ? payload.post! : post
+            );
+          }
+
+          return [payload.post!, ...current];
+        });
+      }
+    };
+
     socket.on("new_post", handleNewPost);
     socket.on("post_updated", handlePostUpdated);
     socket.on("post_deleted", handlePostDeleted);
@@ -272,6 +333,7 @@ export default function FeedPage() {
     socket.on("new_save", handleNewSave);
     socket.on("new_comment", handleNewComment);
     socket.on("comment_deleted", handleCommentDeleted);
+    socket.on("post_visibility_changed", handlePostVisibilityChanged);
 
     return () => {
       socket.off("new_post", handleNewPost);
@@ -281,6 +343,7 @@ export default function FeedPage() {
       socket.off("new_save", handleNewSave);
       socket.off("new_comment", handleNewComment);
       socket.off("comment_deleted", handleCommentDeleted);
+      socket.off("post_visibility_changed", handlePostVisibilityChanged);
     };
   }, []);
 
@@ -332,9 +395,8 @@ export default function FeedPage() {
     const authorName =
       post.author?.username || post.authorName || "Unknown creator";
 
-    return (
+    const cardContent = (
       <article
-        key={post._id}
         className={`feed-post-card ${isHighlighted ? "highlighted" : ""}`}
       >
         {renderMedia(post, isHighlighted)}
@@ -382,6 +444,19 @@ export default function FeedPage() {
           ) : null}
         </div>
       </article>
+    );
+    if (isHighlighted) {
+      return <div key={post._id}>{cardContent}</div>;
+    }
+
+    return (
+      <Link
+        key={post._id}
+        href={`/posts/${post._id}`}
+        className="feed-post-link"
+      >
+        {cardContent}
+      </Link>
     );
   };
 

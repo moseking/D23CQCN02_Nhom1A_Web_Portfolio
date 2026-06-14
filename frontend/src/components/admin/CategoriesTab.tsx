@@ -2,9 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import {
-  Tag,
-} from "lucide-react";
+import { Tag } from "lucide-react";
 
 import { adminService } from "../../services/adminService";
 
@@ -12,26 +10,25 @@ import SearchBar from "./SearchBar";
 
 import type { Category } from "../../types/admin";
 
+import { Plus, Trash2 } from "lucide-react";
+import CategoryModal from "./CategoryModal";
+
 export default function CategoriesTab() {
-  const [categories, setCategories] =
-    useState<Category[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
 
-  const [loading, setLoading] =
-    useState(true);
+  const [loading, setLoading] = useState(true);
 
-  const [search, setSearch] =
-    useState("");
+  const [search, setSearch] = useState("");
+
+  const [showModal, setShowModal] = useState(false);
 
   const fetchCategories = async () => {
     try {
       setLoading(true);
 
-      const data =
-        await adminService.getCategories();
+      const data = await adminService.getCategories();
 
-      setCategories(
-        data.categories || []
-      );
+      setCategories(data.categories || []);
     } catch (error) {
       console.log(error);
     } finally {
@@ -39,21 +36,34 @@ export default function CategoriesTab() {
     }
   };
 
+  const handleCreateCategory = async (name: string, slug: string) => {
+    await adminService.createCategory(name, slug);
+    setShowModal(false);
+    fetchCategories();
+  };
+
+  const handleDeleteCategory = async (category: Category) => {
+    const confirmed = window.confirm(
+      `Xoá tag "${category.name}" khỏi hệ thống?`
+    );
+    if (!confirmed) return;
+
+    try {
+      await adminService.deleteCategory(category.slug, category.name);
+      fetchCategories();
+    } catch (error: any) {
+      alert(error.response?.data?.message || "Không thể xoá tag.");
+    }
+  };
   useEffect(() => {
     fetchCategories();
   }, []);
 
-  const filtered =
-    categories.filter(
-      (c) =>
-        c.name
-          .toLowerCase()
-          .includes(search.toLowerCase()) ||
-
-        c.slug
-          .toLowerCase()
-          .includes(search.toLowerCase())
-    );
+  const filtered = categories.filter(
+    (c) =>
+      c.name.toLowerCase().includes(search.toLowerCase()) ||
+      c.slug.toLowerCase().includes(search.toLowerCase())
+  );
 
   if (loading) {
     return (
@@ -89,6 +99,15 @@ export default function CategoriesTab() {
             placeholder="Search categories..."
           />
         </div>
+
+        <button
+          type="button"
+          onClick={() => setShowModal(true)}
+          className="rounded-xl bg-[#9CAF88] px-4 py-2 text-sm font-semibold text-white"
+        >
+          <Plus className="mr-2 inline h-4 w-4" />
+          Add tag
+        </button>
       </div>
 
       <div
@@ -166,6 +185,14 @@ export default function CategoriesTab() {
                 </div>
               </div>
 
+              <button
+                type="button"
+                onClick={() => handleDeleteCategory(category)}
+                className="rounded-lg p-2 text-red-500 transition hover:bg-red-50"
+                title="Delete tag"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
             </div>
 
             <div
@@ -222,6 +249,13 @@ export default function CategoriesTab() {
             No categories found.
           </p>
         </div>
+      )}
+
+      {showModal && (
+        <CategoryModal
+          onClose={() => setShowModal(false)}
+          onSave={handleCreateCategory}
+        />
       )}
     </div>
   );

@@ -21,6 +21,7 @@ type NotificationItem = {
   type?: string;
   createdAt?: string;
   sender?: {
+    _id?: string;
     username?: string;
     avatar?: string;
   };
@@ -193,14 +194,18 @@ export default function NotificationsPage() {
             {notifications.map((item) => {
               const senderName = item.sender?.username || "Someone";
               const postTitle = item.post?.title;
-              const postHref = item.post?._id
-                ? `/feed?post=${item.post._id}`
-                : "/feed";
+              const targetHref =
+                item.type === "follow" && item.sender?._id
+                  ? `/users/${item.sender._id}`
+                  : item.post?._id
+                  ? `/posts/${item.post._id}`
+                  : "/notifications";
 
               return (
-                <article
+                <Link
                   key={item._id}
-                  className={`group rounded-[24px] border p-5 shadow-[0_14px_35px_rgba(41,45,36,0.07)] transition hover:-translate-y-0.5 ${
+                  href={targetHref}
+                  className={`group block rounded-[24px] border p-5 shadow-[0_14px_35px_rgba(41,45,36,0.07)] transition hover:-translate-y-0.5 ${
                     item.isRead
                       ? "border-[#e0e3da] bg-white/75"
                       : "border-[#bfd0ad] bg-[#f0f6ea]"
@@ -244,16 +249,13 @@ export default function NotificationsPage() {
                       </p>
 
                       {postTitle && (
-                        <Link
-                          href={postHref}
-                          className="mt-3 inline-flex max-w-full rounded-2xl bg-white/80 px-4 py-3 text-sm font-semibold text-slate-600 transition group-hover:text-[#6f7e5b]"
-                        >
+                        <span className="mt-3 inline-flex max-w-full rounded-2xl bg-white/80 px-4 py-3 text-sm font-semibold text-slate-600 transition group-hover:text-[#6f7e5b]">
                           <span className="truncate">Post: {postTitle}</span>
-                        </Link>
+                        </span>
                       )}
                     </div>
                   </div>
-                </article>
+                </Link>
               );
             })}
           </div>

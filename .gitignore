@@ -8,9 +8,12 @@ backend/node_modules/
 frontend/.next/
 
 # env files
-.env*
-frontend/.env*
-backend/.env*
+.env
+.env.*
+frontend/.env
+frontend/.env.*
+backend/.env
+backend/.env.*
 !.env.example
 !frontend/.env.example
 !backend/.env.example
@@ -27,7 +30,7 @@ pnpm-debug.log*
 
 # misc
 .DS_Store
-.vercel
-coverage
+.vercel/
+coverage/
 
 *.tsbuildinfo

@@ -360,29 +360,54 @@ export default function SavedPostsPage() {
                 {renderMedia(post)}
 
                 <div className="saved-card-body">
-                  <div className="saved-author">
-                    {post.author?.avatar ? (
-                      <img
-                        src={post.author.avatar}
-                        alt={authorName}
-                        loading="lazy"
-                        decoding="async"
-                      />
-                    ) : (
-                      <span>{authorName.charAt(0).toUpperCase()}</span>
-                    )}
-
-                    <div>
-                      <strong>{authorName}</strong>
-                      {post.createdAt && (
-                        <small>
-                          {new Date(post.createdAt).toLocaleDateString("vi-VN")}
-                        </small>
+                  {post.author?._id ? (
+                    <Link
+                      href={`/users/${post.author._id}`}
+                      className="saved-author"
+                    >
+                      {post.author?.avatar ? (
+                        <img
+                          src={post.author.avatar}
+                          alt={authorName}
+                          loading="lazy"
+                          decoding="async"
+                        />
+                      ) : (
+                        <span>{authorName.charAt(0).toUpperCase()}</span>
                       )}
-                    </div>
-                  </div>
 
-                  <h2>{post.title || "Không có tiêu đề"}</h2>
+                      <div>
+                        <strong>{authorName}</strong>
+                        {post.createdAt && (
+                          <small>
+                            {new Date(post.createdAt).toLocaleDateString(
+                              "vi-VN"
+                            )}
+                          </small>
+                        )}
+                      </div>
+                    </Link>
+                  ) : (
+                    <div className="saved-author">
+                      <span>{authorName.charAt(0).toUpperCase()}</span>
+                      <div>
+                        <strong>{authorName}</strong>
+                        {post.createdAt && (
+                          <small>
+                            {new Date(post.createdAt).toLocaleDateString(
+                              "vi-VN"
+                            )}
+                          </small>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <h2>
+                    <Link href={`/posts/${post._id}`}>
+                      {post.title || "Không có tiêu đề"}
+                    </Link>
+                  </h2>
 
                   {post.content && <p>{post.content}</p>}
 
@@ -404,6 +429,13 @@ export default function SavedPostsPage() {
                       <FiMessageCircle />
                       {post.commentsCount || 0}
                     </span>
+
+                    <Link
+                      href={`/posts/${post._id}`}
+                      className="saved-detail-link"
+                    >
+                      Xem chi tiết
+                    </Link>
 
                     <button
                       type="button"

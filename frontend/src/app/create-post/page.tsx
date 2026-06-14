@@ -108,9 +108,10 @@ function getFriendlyMediaError(message: string) {
   if (
     message.includes("request entity too large") ||
     message.includes("offset") ||
-    message.includes("BSON")
+    message.includes("BSON") ||
+    message.includes("File too large")
   ) {
-    return "File media quá lớn để lưu trực tiếp vào MongoDB. Hãy chọn video dưới 20MB hoặc dùng link video trực tiếp.";
+    return "File media quá lớn. Hãy chọn ảnh/video dưới 8MB hoặc dùng direct URL/Cloudinary cho video lớn.";
   }
 
   return message;
@@ -321,12 +322,25 @@ export default function CreatePostPage() {
       return;
     }
 
-    const tags = form.tags
-      .map((tag) => tag.trim())
-      .filter(Boolean);
+    const tags = form.tags.map((tag) => tag.trim()).filter(Boolean);
 
     if (!tags.length) {
       setError("Please choose at least one tag.");
+      return;
+    }
+
+    const hasUploadedMedia = imageMode === "upload" && form.uploadedMediaFile;
+    const hasUrlMedia = imageMode === "url" && Boolean(urlMedia);
+
+    if (!hasUploadedMedia && !hasUrlMedia) {
+      setError("Please add an image/video file or a direct media URL.");
+      return;
+    }
+
+    if (imageMode === "url" && hasUnsupportedMediaUrl) {
+      setError(
+        "Please use a direct image/video URL, such as .jpg, .png, .webp, .mp4, or .webm."
+      );
       return;
     }
 
@@ -372,6 +386,14 @@ export default function CreatePostPage() {
   };
 
   useEffect(() => {
+    return () => {
+      if (form.uploadedMediaPreview.startsWith("blob:")) {
+        URL.revokeObjectURL(form.uploadedMediaPreview);
+      }
+    };
+  }, [form.uploadedMediaPreview]);
+
+  useEffect(() => {
     setMounted(true);
   }, []);
 
@@ -398,20 +420,26 @@ export default function CreatePostPage() {
             Share Your <span>Creative Work</span>
           </h1>
           <p>
-            Compose a polished portfolio post, attach an image by URL or from
-            your computer, then publish it straight to the feed.
+            Compose a polished portfolio post, attach an image or video by URL
+            or from your computer, then publish it straight to the feed.
           </p>
         </aside>
 
-        <div className="create-card reveal">
+        <div
+          className={`create-card reveal ${
+            !isAuthenticated ? "auth-only" : ""
+          }`}
+        >
           {!isAuthenticated ? (
-            <div className="form-empty-state">
+            <div className="login-required-state">
+              <p className="eyebrow">Login Required</p>
               <h2>Please login to continue</h2>
-              <p className="mt-3 text-slate-600">
+              <p>
                 You can explore public posts as a guest, but creating posts
                 requires an account.
               </p>
-              <a className="primary-button mt-6" href="/auth?mode=login">
+
+              <a className="primary-button" href="/auth?mode=login">
                 Login
               </a>
             </div>
@@ -468,7 +496,7 @@ export default function CreatePostPage() {
                     onClick={() => setImageMode("url")}
                     type="button"
                   >
-                    <FiLink /> Image URL
+                    <FiLink /> Media URL
                   </button>
                   <button
                     className={imageMode === "upload" ? "active" : ""}
@@ -481,14 +509,14 @@ export default function CreatePostPage() {
 
                 {imageMode === "url" ? (
                   <label>
-                    <span>Paste image link</span>
+                    <span>Paste image or video link</span>
                     <div className="input-with-icon">
                       <FiImage />
                       <input
                         onChange={(event) =>
                           updateField("imageUrl", event.target.value)
                         }
-                        placeholder="https://example.com/work.jpg or video.mp4"
+                        placeholder="Paste direct .jpg, .png, .webp, .mp4, or .webm URL"
                         type="url"
                         value={form.imageUrl}
                       />
@@ -531,9 +559,7 @@ export default function CreatePostPage() {
                       tagsDropdownOpen ? "open" : ""
                     }`}
                     disabled={tagsDropdownDisabled}
-                    onClick={() =>
-                      setTagsDropdownOpen((current) => !current)
-                    }
+                    onClick={() => setTagsDropdownOpen((current) => !current)}
                     type="button"
                   >
                     <span>{selectedTagsText}</span>
@@ -588,6 +614,37 @@ export default function CreatePostPage() {
                 )}
               </div>
 
+              <div className="custom-tag-row">
+                <input
+                  type="text"
+                  placeholder="Nhập tag mới rồi nhấn Enter"
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter") return;
+
+                    event.preventDefault();
+
+                    const value = event.currentTarget.value
+                      .trim()
+                      .toLowerCase();
+
+                    if (!value) return;
+
+                    const existed = form.tags.some(
+                      (tag) => tag.trim().toLowerCase() === value
+                    );
+
+                    if (!existed) {
+                      setForm((current) => ({
+                        ...current,
+                        tags: [...current.tags, value],
+                      }));
+                    }
+
+                    event.currentTarget.value = "";
+                  }}
+                />
+              </div>
+
               {error && <p className="form-error">{error}</p>}
 
               <button
@@ -600,48 +657,49 @@ export default function CreatePostPage() {
             </form>
           )}
 
-          <article className="post-preview">
-            <div className="preview-image">
-              {hasUnsupportedMediaUrl || previewError ? (
-                <div className="preview-placeholder">
-                  <FiAlertCircle />
-                  <strong>Cannot preview this media link</strong>
-                  <span>
-                    Paste a direct image/video URL or upload from your computer.
-                  </span>
-                </div>
-              ) : previewMediaType === "video" ? (
-                <video controls preload="metadata" src={previewMedia} />
-              ) : (
-                <img
-                  alt="Post preview"
-                  onError={() => setPreviewError(true)}
-                  src={previewMedia}
-                  loading="lazy"
-                  decoding="async"
-                />
-              )}
-            </div>
-            <div className="preview-body">
-              <p className="preview-author">
-                {form.authorName || user?.username || "Your username"}
-              </p>
-              <h2>{form.title || "Your post title appears here"}</h2>
-              <p>
-                {form.content ||
-                  "Your content preview will appear while you are typing."}
-              </p>
-              <div>
-                {form.tags
-                  .slice(0, 4)
-                  .map((tag) => (
+          {isAuthenticated && (
+            <article className="post-preview">
+              <div className="preview-image">
+                {hasUnsupportedMediaUrl || previewError ? (
+                  <div className="preview-placeholder">
+                    <FiAlertCircle />
+                    <strong>Cannot preview this media link</strong>
+                    <span>
+                      Paste a direct image/video URL or upload from your
+                      computer.
+                    </span>
+                  </div>
+                ) : previewMediaType === "video" ? (
+                  <video controls preload="metadata" src={previewMedia} />
+                ) : (
+                  <img
+                    alt="Post preview"
+                    onError={() => setPreviewError(true)}
+                    src={previewMedia}
+                    loading="lazy"
+                    decoding="async"
+                  />
+                )}
+              </div>
+              <div className="preview-body">
+                <p className="preview-author">
+                  {form.authorName || user?.username || "Your username"}
+                </p>
+                <h2>{form.title || "Your post title appears here"}</h2>
+                <p>
+                  {form.content ||
+                    "Your content preview will appear while you are typing."}
+                </p>
+                <div>
+                  {form.tags.slice(0, 4).map((tag) => (
                     <span className="tag" key={tag}>
                       {tag}
                     </span>
                   ))}
+                </div>
               </div>
-            </div>
-          </article>
+            </article>
+          )}
         </div>
       </section>
     </main>

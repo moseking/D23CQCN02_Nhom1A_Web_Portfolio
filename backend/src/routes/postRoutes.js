@@ -46,8 +46,8 @@ router.route("/:id/save").post(protect, toggleSavePost);
 router
   .route("/:id")
   .get(getPostById)
-  .put(protect, updatePost)
-  .patch(protect, updatePost)
+  .put(protect, upload.array("media", 5), updatePost)
+  .patch(protect, upload.array("media", 5), updatePost)
   .delete(protect, deletePost);
 
 module.exports = router;

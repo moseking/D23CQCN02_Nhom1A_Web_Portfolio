@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { api } from "@/lib/axios";
 import { socket } from "@/lib/socket";
+import { searchContentAction } from "@/app/actions/searchActions";
 
 type SearchUser = {
   _id: string;
@@ -66,14 +66,7 @@ export default function SearchPage() {
       try {
         setLoading(true);
 
-        const res = await api.get("/search", {
-          params: {
-            q: keyword,
-            type: type || undefined,
-          },
-        });
-
-        const data = res.data.data || res.data;
+        const data = await searchContentAction(keyword);
 
         setUsers(data.users || []);
         setPosts(data.posts || []);

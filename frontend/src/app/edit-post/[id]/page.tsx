@@ -43,6 +43,7 @@ type PostForm = {
   uploadedMedia: string;
   uploadedMediaType: MediaType;
   tags: string[];
+  uploadedMediaFile: File | null;
 };
 
 type CategoryOption = {
@@ -151,6 +152,7 @@ export default function EditPostPage() {
     uploadedMedia: "",
     uploadedMediaType: "image",
     tags: [],
+    uploadedMediaFile: null,
   });
   const [imageMode, setImageMode] = useState("url");
   const [status, setStatus] = useState("loading");
@@ -189,6 +191,7 @@ export default function EditPostPage() {
           uploadedMedia: mediaUrl.startsWith("data:") ? mediaUrl : "",
           uploadedMediaType: mediaType,
           tags: post.tags || [],
+          uploadedMediaFile: null,
         });
         setImageMode(mediaUrl.startsWith("data:") ? "upload" : "url");
         setStatus("ready");
@@ -272,7 +275,10 @@ export default function EditPostPage() {
     ? `${form.tags.length} tag${form.tags.length > 1 ? "s" : ""} selected`
     : "Select tags";
 
-  const updateField = (field: Exclude<keyof PostForm, "tags">, value: string) => {
+  const updateField = (
+    field: Exclude<keyof PostForm, "tags">,
+    value: string
+  ) => {
     if (field === "imageUrl") setPreviewError(false);
     setForm((current) => ({ ...current, [field]: value }));
   };
@@ -324,17 +330,17 @@ export default function EditPostPage() {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      setError("");
-      setForm((current) => ({
-        ...current,
-        uploadedMedia: typeof reader.result === "string" ? reader.result : "",
-        uploadedMediaType: file.type.startsWith("video/") ? "video" : "image",
-      }));
-      setImageMode("upload");
-    };
-    reader.readAsDataURL(file);
+    const previewUrl = URL.createObjectURL(file);
+
+    setError("");
+    setPreviewError(false);
+    setForm((current) => ({
+      ...current,
+      uploadedMedia: previewUrl,
+      uploadedMediaFile: file,
+      uploadedMediaType: file.type.startsWith("video/") ? "video" : "image",
+    }));
+    setImageMode("upload");
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -347,45 +353,38 @@ export default function EditPostPage() {
     }
 
     setIsSubmitting(true);
-
-    const mediaValue = imageMode === "upload" ? form.uploadedMedia : urlMedia;
-    const mediaType =
-      imageMode === "upload"
-        ? form.uploadedMediaType
-        : getMediaType(mediaValue);
-
-    if (
-      mediaValue.startsWith("data:") &&
-      mediaValue.length > MAX_UPLOAD_BYTES * 1.4
-    ) {
-      setError(
-        `File media quá lớn. Upload từ máy chỉ hỗ trợ file dưới ${formatBytes(
-          MAX_UPLOAD_BYTES
-        )}; video lớn hãy dùng direct URL hoặc Cloudinary.`
-      );
-      setIsSubmitting(false);
-      return;
-    }
-    const tags = form.tags
-      .map((tag) => tag.trim())
-      .filter(Boolean);
+    const tags = form.tags.map((tag) => tag.trim()).filter(Boolean);
 
     if (!tags.length) {
       setError("Please choose at least one tag.");
       setIsSubmitting(false);
       return;
     }
-
-    const media = mediaValue ? [{ url: mediaValue, type: mediaType }] : [];
-
     try {
-      const response = await api.patch(`/posts/${postId}`, {
-        title: form.title.trim(),
-        content: form.content.trim(),
-        tags,
-        media,
-        status: "published",
-      });
+      const formData = new FormData();
+
+      formData.append("title", form.title.trim());
+      formData.append("content", form.content.trim());
+      formData.append("status", "published");
+      formData.append("tags", JSON.stringify(tags));
+
+      if (imageMode === "upload" && form.uploadedMediaFile) {
+        formData.append("media", form.uploadedMediaFile);
+      }
+
+      if (imageMode === "url" && urlMedia) {
+        formData.append(
+          "media",
+          JSON.stringify([
+            {
+              url: urlMedia,
+              type: getMediaType(urlMedia),
+            },
+          ])
+        );
+      }
+
+      const response = await api.patch(`/posts/${postId}`, formData);
       const result = response.data;
 
       if (!result.success) {
@@ -496,7 +495,7 @@ export default function EditPostPage() {
                       onClick={() => setImageMode("url")}
                       type="button"
                     >
-                      <FiLink /> Image URL
+                      <FiLink /> Media URL
                     </button>
                     <button
                       className={imageMode === "upload" ? "active" : ""}
@@ -509,7 +508,7 @@ export default function EditPostPage() {
 
                   {imageMode === "url" ? (
                     <label>
-                      <span>Paste image link</span>
+                      <span>Paste image or video link</span>
                       <div className="input-with-icon">
                         <FiImage />
                         <input
@@ -554,9 +553,7 @@ export default function EditPostPage() {
                         tagsDropdownOpen ? "open" : ""
                       }`}
                       disabled={tagsDropdownDisabled}
-                      onClick={() =>
-                        setTagsDropdownOpen((current) => !current)
-                      }
+                      onClick={() => setTagsDropdownOpen((current) => !current)}
                       type="button"
                     >
                       <span>{selectedTagsText}</span>
@@ -611,6 +608,37 @@ export default function EditPostPage() {
                   )}
                 </div>
 
+                <div className="custom-tag-row">
+                  <input
+                    type="text"
+                    placeholder="Nhập tag mới rồi nhấn Enter"
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter") return;
+
+                      event.preventDefault();
+
+                      const value = event.currentTarget.value
+                        .trim()
+                        .toLowerCase();
+
+                      if (!value) return;
+
+                      const existed = form.tags.some(
+                        (tag) => tag.trim().toLowerCase() === value
+                      );
+
+                      if (!existed) {
+                        setForm((current) => ({
+                          ...current,
+                          tags: [...current.tags, value],
+                        }));
+                      }
+
+                      event.currentTarget.value = "";
+                    }}
+                  />
+                </div>
+
                 {error && <p className="form-error">{error}</p>}
 
                 <button
@@ -653,13 +681,11 @@ export default function EditPostPage() {
                       "Your content preview will appear while you are typing."}
                   </p>
                   <div>
-                    {form.tags
-                      .slice(0, 4)
-                      .map((tag) => (
-                        <span className="tag" key={tag}>
-                          {tag}
-                        </span>
-                      ))}
+                    {form.tags.slice(0, 4).map((tag) => (
+                      <span className="tag" key={tag}>
+                        {tag}
+                      </span>
+                    ))}
                   </div>
                 </div>
               </article>

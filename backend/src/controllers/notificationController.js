@@ -7,7 +7,7 @@ exports.getNotifications = async (req, res) => {
     const notifications = await Notification.find({
       receiver: userId,
     })
-      .populate("sender", "username avatar")
+      .populate("sender", "username avatar _id")
       .populate("post", "title content media authorName")
       .sort({ createdAt: -1 });
 

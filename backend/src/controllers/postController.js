@@ -6,6 +6,7 @@ const Notification = require("../models/Notification");
 const createNotification = require("../utils/createNotification");
 const deleteCloudinaryMedia = require("../utils/deleteCloudinaryMedia");
 const cloudinary = require("../config/cloudinary");
+const Category = require("../models/Category");
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
@@ -53,7 +54,15 @@ const getPosts = async (req, res, next) => {
         .skip(skip)
         .limit(limit)
         .lean(),
-      Post.countDocuments({...filter, visible: true,}),
+      Post.countDocuments({
+        ...filter,
+        visible: {
+          $ne: false,
+        },
+        status: {
+          $ne: "draft",
+        },
+      }),
     ]);
 
     res.json({
@@ -102,23 +111,43 @@ const getPostCategories = async (req, res, next) => {
           },
         },
       },
-      {
-        $sort: {
-          _id: 1,
-        },
-      },
     ]);
 
-    const categories = tags.map((tag) => ({
-      _id: toCategorySlug(tag._id),
-      name: tag._id,
-      slug: toCategorySlug(tag._id),
-      postsCount: tag.postsCount,
-    }));
+    const savedCategories = await Category.find().sort({ name: 1 }).lean();
+
+    const countBySlug = new Map(
+      tags.map((tag) => [toCategorySlug(tag._id), tag.postsCount])
+    );
+
+    const merged = new Map();
+
+    savedCategories.forEach((category) => {
+      merged.set(category.slug, {
+        _id: category._id,
+        name: category.name,
+        slug: category.slug,
+        postsCount: countBySlug.get(category.slug) || 0,
+      });
+    });
+
+    tags.forEach((tag) => {
+      const slug = toCategorySlug(tag._id);
+
+      if (!merged.has(slug)) {
+        merged.set(slug, {
+          _id: slug,
+          name: tag._id,
+          slug,
+          postsCount: tag.postsCount,
+        });
+      }
+    });
 
     res.json({
       success: true,
-      categories,
+      categories: Array.from(merged.values()).sort((a, b) =>
+        a.name.localeCompare(b.name)
+      ),
     });
   } catch (error) {
     next(error);
@@ -318,7 +347,14 @@ const updatePost = async (req, res, next) => {
 
     if (req.body.title !== undefined) updateData.title = req.body.title;
     if (req.body.content !== undefined) updateData.content = req.body.content;
-    if (req.body.media !== undefined) updateData.media = req.body.media;
+    const uploadedMedia = req.files?.length
+      ? await Promise.all(req.files.map((file) => uploadFileToCloudinary(file)))
+      : [];
+
+    if (req.body.media !== undefined || uploadedMedia.length) {
+      const bodyMedia = parseArrayInput(req.body.media);
+      updateData.media = [...bodyMedia, ...uploadedMedia];
+    }
     if (req.body.status !== undefined) updateData.status = req.body.status;
 
     if (req.body.tags !== undefined) {
@@ -384,12 +420,10 @@ const deletePost = async (req, res, next) => {
 
     await Promise.all([
       Comment.deleteMany({
-        post:
-          post._id,
+        post: post._id,
       }),
       Notification.deleteMany({
-        post:
-          post._id,
+        post: post._id,
       }),
     ]);
 
@@ -570,9 +604,12 @@ const getSavedPosts = async (req, res, next) => {
     }
 
     const posts = await Post.find({
-      savedBy: userId,
+      ...filter,
       visible: {
         $ne: false,
+      },
+      status: {
+        $ne: "draft",
       },
     })
       .populate("author", "username avatar bio")

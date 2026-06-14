@@ -1,11 +1,14 @@
 const multer = require("multer");
 
+const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
+
 const storage = multer.memoryStorage();
 
 const upload = multer({
   storage,
   limits: {
-    fileSize: 8 * 1024 * 1024, // 20MB/file
+    fileSize: MAX_UPLOAD_BYTES,
+    files: 5,
   },
   fileFilter: (req, file, cb) => {
     const isImage = file.mimetype.startsWith("image/");

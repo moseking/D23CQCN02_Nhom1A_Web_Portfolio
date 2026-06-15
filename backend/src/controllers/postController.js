@@ -65,9 +65,35 @@ const getPosts = async (req, res, next) => {
       }),
     ]);
 
+    const postIds = posts.map((post) => post._id);
+
+    const commentCounts = await Comment.aggregate([
+      {
+        $match: {
+          post: { $in: postIds },
+          visible: true,
+        },
+      },
+      {
+        $group: {
+          _id: "$post",
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const commentCountMap = new Map(
+      commentCounts.map((item) => [item._id.toString(), item.count])
+    );
+
+    const postsWithCommentCount = posts.map((post) => ({
+      ...post,
+      commentsCount: commentCountMap.get(post._id.toString()) || 0,
+    }));
+
     res.json({
       success: true,
-      data: posts,
+      data: postsWithCommentCount,
       pagination: {
         page,
         limit,

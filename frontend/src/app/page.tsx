@@ -71,6 +71,7 @@ type FeedWork = {
   content?: string;
   isNew?: boolean;
   comments?: CommentItem[];
+  commentsCount?: number;
 };
 
 type Creator = {
@@ -105,6 +106,7 @@ type ApiPost = {
   likedBy?: string[];
   likes?: string[];
   savedBy?: string[];
+  commentsCount?: number;
 };
 
 type ApiComment = {
@@ -261,6 +263,7 @@ export default function Home() {
       content: post.content || post.caption || "",
       isNew: true,
       comments: [],
+      commentsCount: post.commentsCount || 0,
     }),
     [currentUserName]
   );
@@ -2550,9 +2553,13 @@ function WorkCard({
       >
         <span>
           <FiMessageCircle />
-          <strong>{work.comments?.length || 0}</strong>
+          <strong>{work.commentsCount ?? work.comments?.length ?? 0}</strong>
         </span>
-        <em>{(work.comments?.length || 0) === 1 ? "comment" : "comments"}</em>
+        <em>
+          {(work.commentsCount ?? work.comments?.length ?? 0) === 1
+            ? "comment"
+            : "comments"}
+        </em>
       </button>
 
       {showDeleteModal && (

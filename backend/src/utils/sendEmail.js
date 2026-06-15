@@ -8,30 +8,29 @@ const createTransporter = () => {
   }
 
   return nodemailer.createTransport({
-    service: "gmail",
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 15000,
+    host: "smtp.gmail.com",
+    port: 465,
+    secure: true,
+    connectionTimeout: 60000,
+    greetingTimeout: 30000,
+    socketTimeout: 60000,
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS,
     },
+    tls: {
+      servername: "smtp.gmail.com",
+    },
   });
 };
 
-const sendEmail = async (
-  to,
-  subject,
-  text,
-  html
-) => {
+const sendEmail = async (to, subject, text, html) => {
   const transporter = createTransporter();
 
   let info;
 
   try {
-    info =
-      await transporter.sendMail({
+    info = await transporter.sendMail({
       from: process.env.EMAIL_USER,
       to,
       subject,
@@ -51,18 +50,13 @@ const sendEmail = async (
     throw error;
   }
 
-  if (
-    info.rejected &&
-    info.rejected.length > 0
-  ) {
+  if (info.rejected && info.rejected.length > 0) {
     const error = new Error(
       `Email was rejected by recipient server: ${info.rejected.join(", ")}`
     );
 
-    error.code =
-      "EMAIL_REJECTED";
-    error.rejected =
-      info.rejected;
+    error.code = "EMAIL_REJECTED";
+    error.rejected = info.rejected;
 
     throw error;
   }
